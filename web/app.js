@@ -154,9 +154,9 @@ const NAV = [
   { route: "search", label: "Search", hash: "#/search", icon: "search" },
   { route: "favorites", label: "Favorites", hash: "#/favorites", icon: "heart" },
   { route: "browse-date", label: "Browse by Date", hash: "#/browse/date", icon: "calendar" },
-  { route: "random", label: "Random Wisdom", hash: "#/random", icon: "shuffle" },
+  { route: "random", label: "Guru's Unique Msg", hash: "#/random", icon: "shuffle" },
   { divider: true },
-  { route: "admin", label: "Add Wisdom", hash: "#/admin", icon: "upload" },
+  { route: "admin", label: "Add Guru's Msg", hash: "#/admin", icon: "upload" },
   { route: "moderator", label: "Moderator", hash: "#/moderator", icon: "shield", modOnly: true },
   { route: "stats", label: "Statistics", hash: "#/stats", icon: "pie" },
   { route: "settings", label: "Settings", hash: "#/settings", icon: "gear" },
@@ -406,7 +406,7 @@ function buildDetail(e, opts = {}) {
 
 function commentsSection(id) {
   const sec = el(`<div class="comments"><h3>My Comments</h3>
-    <textarea placeholder="Write a private note or reflection on this wisdom…"></textarea>
+    <textarea placeholder="Write a private note or reflection on this Guru's msg…"></textarea>
     <div class="crow"><button class="btn primary" id="add-comment">Add note</button></div>
     <div class="comment-list"></div></div>`);
   const ta = sec.querySelector("textarea"); const listEl = sec.querySelector(".comment-list");
@@ -469,7 +469,7 @@ function conclusionSummaryHtml(d) {
 async function loadConclusion(id) {
   const box = document.getElementById("conc-body-compact");
   if (!box) return;
-  if (!id) { box.innerHTML = `<div class="conc-empty">Select a wisdom to see its conclusion.</div>`; return; }
+  if (!id) { box.innerHTML = `<div class="conc-empty">Select a Guru's msg to see its conclusion.</div>`; return; }
   box.innerHTML = `<div class="loading">Loading…</div>`;
   try { const d = await WA.getConclusion(id); box.innerHTML = conclusionSummaryHtml(d); }
   catch { box.innerHTML = `<div class="conc-empty">No conclusion shared yet.</div>`; }
@@ -498,7 +498,7 @@ function renderConclusionEditor(body, id, d) {
   const text = d.exists && !d.locked ? (d.text || "") : "";
   const vis = d.visibility || "public";
   body.innerHTML = `<div class="conc-edit">
-    <label class="conc-label">Your conclusion for Wisdom #${escapeHtml(String(id))}</label>
+    <label class="conc-label">Your conclusion for Guru's msg #${escapeHtml(String(id))}</label>
     <textarea class="conc-textarea" placeholder="Write the conclusion drawn from the community's discussion…">${escapeHtml(text)}</textarea>
     <div class="conc-vis">
       <span>Visibility:</span>
@@ -608,7 +608,7 @@ function wireModSignIn(body, onSuccess) {
 async function renderConclusionPanelBody(id) {
   const body = document.getElementById("conc-panel-body");
   if (!body) return;
-  if (!id) { body.innerHTML = `<div class="conc-empty" style="padding:30px">Open a wisdom on the home page to see or write its conclusion.</div>`; return; }
+  if (!id) { body.innerHTML = `<div class="conc-empty" style="padding:30px">Open a Guru's msg on the home page to see or write its conclusion.</div>`; return; }
   body.innerHTML = `<div class="loading" style="padding:24px">Loading…</div>`;
   let d;
   try { d = await WA.getConclusion(id); }
@@ -617,7 +617,7 @@ async function renderConclusionPanelBody(id) {
   if (d.can_edit) { renderConclusionEditor(body, id, d); return; }
 
   let html = "";
-  if (!d.exists) html = `<div class="conc-empty" style="padding:30px 24px 8px">No conclusion has been written for this wisdom yet.</div>`;
+  if (!d.exists) html = `<div class="conc-empty" style="padding:30px 24px 8px">No conclusion has been written for this Guru's msg yet.</div>`;
   else if (d.locked) html = `<div class="conc-locked" style="margin:22px">🔒 This conclusion is for community members only.</div>`;
   else {
     const badge = d.visibility === "community" ? `<span class="conc-badge members">Members only</span>` : `<span class="conc-badge public">Public</span>`;
@@ -639,7 +639,7 @@ async function renderHome(params) {
   const latest = await api("/api/latest?limit=14");
   if (!current(nav)) return;
   const items = latest.results;
-  if (!items.length) { $view.innerHTML = `<div class="empty">No wisdom yet. Add folders and run the importer.</div>`; return; }
+  if (!items.length) { $view.innerHTML = `<div class="empty">No Guru's msg yet. Add folders and run the importer.</div>`; return; }
   // Every fresh open of Home shows the latest wisdom. `sel` only carries a
   // specific entry across an in-session refresh (set via history.replaceState
   // in selectStage()) — it does not persist across a real app restart, so
@@ -706,7 +706,7 @@ async function renderCommunityTab(body) {
         wrap.innerHTML = `<div class="comm-panel-empty">
           <div class="cpe-ico">${COMMUNITY_ICON}</div>
           <div class="cpe-h">No discussions yet</div>
-          <div class="cpe-sub">Open a wisdom and join the discussion!</div>
+          <div class="cpe-sub">Open a Guru's msg and join the discussion!</div>
         </div>`;
         return;
       }
@@ -717,7 +717,7 @@ async function renderCommunityTab(body) {
           <div class="cpm-body">
             <div class="cpm-meta">
               <span class="cpm-user">${escapeHtml(m.user || "")}</span>
-              <a class="cpm-wid" data-wid="${escapeHtml(m.wid)}" href="#">Wisdom #${escapeHtml(m.wid)}</a>
+              <a class="cpm-wid" data-wid="${escapeHtml(m.wid)}" href="#">Guru's msg #${escapeHtml(m.wid)}</a>
               <span class="cpm-time">${timeAgo(m.ts)}</span>
             </div>
             <div class="cpm-text">${renderMarkdown(m.text || "")}</div>
@@ -817,7 +817,7 @@ async function renderWisdomChat(body, wid) {
   closeChatStream();
   body.innerHTML = `<div class="wc-wrap">
     <div class="wc-hdr">
-      <span class="wc-title">${COMMUNITY_ICON} Wisdom #${escapeHtml(wid)}</span>
+      <span class="wc-title">${COMMUNITY_ICON} Guru's msg #${escapeHtml(wid)}</span>
       <button class="wc-refresh cp-refresh" title="Refresh">↻</button>
     </div>
     <div class="wc-msgs" id="wc-msgs"><div class="loading" style="padding:20px">Loading…</div></div>
@@ -1012,7 +1012,7 @@ async function renderStage(id) {
   _stageId = id || null;
   document.querySelectorAll(".rail-item").forEach((r) => r.classList.toggle("active", r.dataset.id === String(id)));
   if (!id) {
-    stage.innerHTML = `<div class="empty-stage">Select a wisdom from the list to read it here.</div>`;
+    stage.innerHTML = `<div class="empty-stage">Select a Guru's msg from the list to read it here.</div>`;
     updateIdNav(null);
     loadConclusion(null);
     if (document.getElementById("conc-panel-body")) renderConclusionPanelBody(null);
@@ -1042,7 +1042,7 @@ const CHEVRON_LEFT = '<path d="M15 5l-7 7 7 7"/>';
 const CHEVRON_RIGHT = '<path d="M9 5l7 7-7 7"/>';
 function carouselArrow(dir, onClick) {
   const path = dir === "prev" ? CHEVRON_LEFT : CHEVRON_RIGHT;
-  const label = dir === "prev" ? "Previous wisdom" : "Next wisdom";
+  const label = dir === "prev" ? "Previous Guru's msg" : "Next Guru's msg";
   const btn = el(`<button class="carousel-arrow carousel-${dir}" type="button" title="${label}" aria-label="${label}">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>
   </button>`);
@@ -1078,7 +1078,7 @@ async function initQuickStats() {
   const row = (ico, num, label, route) => `<div class="qs-row${route ? " qs-row-link" : ""}"${route ? ` data-route="${route}"` : ""}><div class="sico">${ico}</div><div><div class="snum">${num}</div><div class="slabel">${label}</div></div></div>`;
   const render = () => {
     pop.innerHTML =
-      row("📖", stats.total, "Total Wisdom") +
+      row("📖", stats.total, "Total Guru's Msgs") +
       row("📅", stats.this_year, "This Year (" + yr + ")") +
       row("♡", store.favs().length, "Favorites", "favorites") +
       row("🕐", stats.days_covered, "Days Covered");
@@ -1193,7 +1193,7 @@ function renderThumbList(items, opts) {
     const token = ++detailToken;
     let e;
     try { e = await fetchEntry(items[i]); }
-    catch { toast("Couldn't load that wisdom."); return; }
+    catch { toast("Couldn't load that Guru's msg."); return; }
     if (token !== detailToken || !current(nav)) return;   // superseded or navigated away
 
     _stageId = e.id;   // so the right-sidebar Conclusion panel + topbar ID button target this wisdom
@@ -1241,8 +1241,8 @@ async function renderSearch(q) {
   renderThumbList(data.results, {
     nav,
     backButton: searchBackBtn(),
-    header: el(`<div class="page-head"><div class="page-title">Search Results for <span class="hl-accent">“${escapeHtml(q)}”</span></div><div class="page-sub">Found ${data.count} wisdom ${data.count === 1 ? "entry" : "entries"}</div></div>`),
-    emptyMsg: `No wisdom matched “${escapeHtml(q)}”.`,
+    header: el(`<div class="page-head"><div class="page-title">Search Results for <span class="hl-accent">“${escapeHtml(q)}”</span></div><div class="page-sub">Found ${data.count} Guru's msg${data.count === 1 ? "" : "s"}</div></div>`),
+    emptyMsg: `No Guru's msg matched “${escapeHtml(q)}”.`,
     snippet: (r, lang) => highlight(r[`body_${lang}`], q),
     fetchEntry: (r) => api("/api/entry/" + encodeURIComponent(r.id)),   // list rows don't carry images
   });
@@ -1254,7 +1254,7 @@ async function renderSearch(q) {
 async function renderEntry(id) {
   const nav = _nav;
   $view.innerHTML = `<div class="loading">Loading…</div>`;
-  let e; try { e = await api("/api/entry/" + encodeURIComponent(id)); } catch { if (current(nav)) $view.innerHTML = `<div class="empty">Wisdom #${escapeHtml(id)} not found.</div>`; return; }
+  let e; try { e = await api("/api/entry/" + encodeURIComponent(id)); } catch { if (current(nav)) $view.innerHTML = `<div class="empty">Guru's msg #${escapeHtml(id)} not found.</div>`; return; }
   if (!current(nav)) return;
   store.setLastViewed(id);
   _stageId = id;   // so the right-sidebar Conclusion panel targets this wisdom
@@ -1274,7 +1274,7 @@ async function renderFavorites() {
     nav,
     backButton: backBtn("‹ Back", () => go("#/")),
     header: el(`<div class="page-head"><div class="page-title">Favorites</div><div class="page-sub">${ids.length} saved ${ids.length === 1 ? "entry" : "entries"} · stored in this browser</div></div>`),
-    emptyMsg: `No favorites yet. Open a wisdom and tap “Add to Favorites”.`,
+    emptyMsg: `No favorites yet. Open a Guru's msg and tap “Add to Favorites”.`,
     fetchEntry: (e) => Promise.resolve(e),   // already the full entry — no re-fetch needed
   });
 }
@@ -1461,7 +1461,7 @@ async function renderArchive(params) {
   const activeKey = sel ? sel.slice(0, 7) : (monthFilter || null);
 
   const wrap = document.createElement("div");
-  wrap.appendChild(el(`<div class="page-head"><div class="page-title">Browse by Date</div><div class="page-sub">Pick a date to read its wisdom entries.</div></div>`));
+  wrap.appendChild(el(`<div class="page-head"><div class="page-title">Browse by Date</div><div class="page-sub">Pick a date to read its Guru's msgs.</div></div>`));
 
   const layout = el(`<div class="arch-layout"></div>`);
   const main = el(`<div class="arch-main"></div>`);
@@ -1505,7 +1505,7 @@ async function renderBrowse(mode, params) {
   if (!current(nav)) return;
   const titles = { date: "Browse by Date", month: "Browse by Month", year: "Browse by Year" };
   const wrap = document.createElement("div");
-  wrap.appendChild(el(`<div class="page-head"><div class="page-title">${titles[mode]}</div><div class="page-sub">Pick a ${mode} to read its wisdom entries.</div></div>`));
+  wrap.appendChild(el(`<div class="page-head"><div class="page-title">${titles[mode]}</div><div class="page-sub">Pick a ${mode} to read its Guru's msgs.</div></div>`));
   const chips = el(`<div class="browse-chips"></div>`);
   data.periods.forEach((p) => {
     const c = el(`<button class="chip-btn ${sel === p.period ? "active" : ""}">${periodLabel(mode, p.period)} · ${p.count}</button>`);
@@ -1527,7 +1527,7 @@ async function renderBrowse(mode, params) {
   $view.replaceChildren(wrap);
 }
 
-async function renderRandom() { const nav = _nav; try { const e = await api("/api/random"); if (!current(nav)) return; go("#/entry/" + e.id); } catch { if (current(nav)) $view.innerHTML = `<div class="empty">No wisdom available.</div>`; } }
+async function renderRandom() { const nav = _nav; try { const e = await api("/api/random"); if (!current(nav)) return; go("#/entry/" + e.id); } catch { if (current(nav)) $view.innerHTML = `<div class="empty">No Guru's msg available.</div>`; } }
 
 async function renderStats() {
   const nav = _nav;
@@ -1537,7 +1537,7 @@ async function renderStats() {
   const wrap = document.createElement("div");
   wrap.appendChild(el(`<div class="page-head"><div class="page-title">Statistics</div><div class="page-sub">An overview of the archive.</div></div>`));
   wrap.appendChild(el(`<div class="stats">
-    <div class="stat"><div class="sico">📖</div><div><div class="snum">${stats.total}</div><div class="slabel">Total Wisdom</div></div></div>
+    <div class="stat"><div class="sico">📖</div><div><div class="snum">${stats.total}</div><div class="slabel">Total Guru's Msgs</div></div></div>
     <div class="stat"><div class="sico">📅</div><div><div class="snum">${stats.this_year}</div><div class="slabel">This Year (${new Date().getFullYear()})</div></div></div>
     <div class="stat"><div class="sico">♡</div><div><div class="snum">${store.favs().length}</div><div class="slabel">Favorites</div></div></div>
     <div class="stat"><div class="sico">🕐</div><div><div class="snum">${stats.days_covered}</div><div class="slabel">Days Covered</div></div></div></div>`));
@@ -1551,15 +1551,15 @@ async function renderStats() {
 function renderInfo(kind) {
   const title = { settings: "Settings", about: "About", help: "Help & Support" }[kind];
   const body = {
-    settings: `<h3>Settings</h3><p>Wisdom Archive runs locally on your computer. There is no account — your <strong>favorites</strong> and <strong>notes</strong> are stored privately in this browser.</p><ul><li>Use the « / » button to collapse or expand the sidebar.</li><li>Dark mode is coming soon.</li><li>To add a new day's wisdom, open <strong>Add Wisdom</strong> in the sidebar and drop in that day's files — it appears instantly, no restart needed.</li><li>To bulk-rebuild from all folders at once, you can still run the importer (<code>reimport.bat</code>).</li></ul>
+    settings: `<h3>Settings</h3><p>Wisdom Archive runs locally on your computer. There is no account — your <strong>favorites</strong> and <strong>notes</strong> are stored privately in this browser.</p><ul><li>Use the « / » button to collapse or expand the sidebar.</li><li>Dark mode is coming soon.</li><li>To add a new day's Guru's msg, open <strong>Add Guru's Msg</strong> in the sidebar and drop in that day's files — it appears instantly, no restart needed.</li><li>To bulk-rebuild from all folders at once, you can still run the importer (<code>reimport.bat</code>).</li></ul>
       <div class="sync-box">
-        <h3 style="margin-top:0">Latest Wisdom Sync</h3>
-        <p>Checks the central archive for any new day's wisdom and adds it here automatically.</p>
+        <h3 style="margin-top:0">Latest Guru's Msg Sync</h3>
+        <p>Checks the central archive for any new day's Guru's msg and adds it here automatically.</p>
         <button class="btn primary" id="sync-now-btn">Sync now</button>
         <div id="sync-status" class="sync-status"></div>
       </div>`,
-    about: `<h3>About</h3><p>The Wisdom Archive is a digital library of daily spiritual wisdom messages, searchable across English and Hindi transcripts. Each entry preserves the original images and their transcribed text.</p><p style="font-family:var(--serif);font-size:17px;color:var(--accent)">“The purpose of life is realisation of the Self.”<br>— Baba Swami</p><p style="margin-top:22px;color:var(--muted,#888);font-size:13px">Wisdom Archive · version <span id="wa-version">…</span></p>`,
-    help: `<h3>Help &amp; Support</h3><p>Search any word in English or Hindi from the bar at the top — matching wisdom appears with the word highlighted in yellow. Click a result to read it in full, with both images and transcripts.</p><ul><li><strong>Add to Favorites</strong> to save an entry; find them under Favorites.</li><li>Write private notes under <strong>My Comments</strong> on any entry.</li><li><strong>Browse</strong> by Date, Month, or Year from the sidebar.</li></ul>`,
+    about: `<h3>About</h3><p>The Wisdom Archive is a digital library of daily spiritual Guru's msgs, searchable across English and Hindi transcripts. Each entry preserves the original images and their transcribed text.</p><p style="font-family:var(--serif);font-size:17px;color:var(--accent)">“The purpose of life is realisation of the Self.”<br>— Baba Swami</p><p style="margin-top:22px;color:var(--muted,#888);font-size:13px">Wisdom Archive · version <span id="wa-version">…</span></p>`,
+    help: `<h3>Help &amp; Support</h3><p>Search any word in English or Hindi from the bar at the top — matching Guru's msgs appear with the word highlighted in yellow. Click a result to read it in full, with both images and transcripts.</p><ul><li><strong>Add to Favorites</strong> to save an entry; find them under Favorites.</li><li>Write private notes under <strong>My Comments</strong> on any entry.</li><li><strong>Browse</strong> by Date, Month, or Year from the sidebar.</li></ul>`,
   }[kind];
   $view.innerHTML = `<div class="page-title">${title}</div><div class="prose">${body}</div>`;
   if (kind === "about") {
@@ -1606,7 +1606,7 @@ async function wireSyncBox() {
       if (!r.ok) throw await apiError(r);
       const d = await r.json();
       status.innerHTML = syncStatusHtml(d);
-      if ((d.added || []).length) toast(`Added ${d.added.length} new wisdom entr${d.added.length === 1 ? "y" : "ies"}`);
+      if ((d.added || []).length) toast(`Added ${d.added.length} new Guru's msg${d.added.length === 1 ? "" : "s"}`);
     } catch (e) { status.innerHTML = `<span class="ar-err">${escapeHtml(e.message || "Sync failed.")}</span>`; }
     finally { btn.disabled = false; btn.textContent = "Sync now"; }
   });
@@ -1644,13 +1644,13 @@ async function walkDataTransferEntries(entries) {
 
 async function renderAdmin() {
   const wrap = document.createElement("div");
-  wrap.appendChild(el(`<div class="page-head"><div class="page-title">Add Wisdom</div>
+  wrap.appendChild(el(`<div class="page-head"><div class="page-title">Add Guru's Msg</div>
     <div class="page-sub">Drop today's files here to add a new entry — it appears in the archive instantly.</div></div>`));
 
   // In the mobile app there is no local archive folder to write into — adding
   // wisdom stays a desktop task; new entries arrive here through Sync.
   if (window.WA_NATIVE_ACTIVE) {
-    wrap.appendChild(el(`<div class="empty">Adding wisdom is done from the desktop app.<br>New entries reach this app automatically through <strong>Settings → Latest Wisdom Sync</strong>.</div>`));
+    wrap.appendChild(el(`<div class="empty">Adding Guru's msg is done from the desktop app.<br>New entries reach this app automatically through <strong>Settings → Latest Guru's Msg Sync</strong>.</div>`));
     $view.replaceChildren(wrap);
     return;
   }
@@ -1799,7 +1799,7 @@ async function renderAdmin() {
       const r = await fetch("/api/admin/import", { method: "POST", body: fd, headers: authHeaders() });
       // Session expired / not a moderator — drop back to the sign-in gate.
       if (r.status === 401 || r.status === 403) {
-        toast("Please sign in as a moderator to add wisdom.");
+        toast("Please sign in as a moderator to add Guru's msg.");
         store.setToken(""); try { localStorage.removeItem("wa:user"); } catch {}
         refreshModNav(); renderAdmin();
         return;
@@ -1815,12 +1815,12 @@ async function renderAdmin() {
       }
       if (!r.ok) throw new Error(data.detail || ("Error " + r.status));
       result.innerHTML = `<div class="ar-ok">
-        <div class="ar-ok-h">✓ ${replacing ? "Replaced" : "Added"} wisdom #${escapeHtml(data.id)}</div>
+        <div class="ar-ok-h">✓ ${replacing ? "Replaced" : "Added"} Guru's msg #${escapeHtml(data.id)}</div>
         <div class="ar-meta">${fmtDate(data.date)} · ${escapeHtml(data.weekday || "")} · ${escapeHtml((data.languages || []).join(" + ") || "—")}${data.topic ? " · " + escapeHtml(data.topic) : ""}</div>
         <button class="btn primary ar-view">View entry ›</button></div>`;
       result.querySelector(".ar-view").addEventListener("click", () => go("#/entry/" + data.id));
       input.value = ""; folderInput.value = ""; chosen = []; dupId = null; fileList.innerHTML = ""; card.querySelector("#admin-topic-input").value = ""; goBtn.textContent = "Add to Archive"; goBtn.classList.remove("danger");
-      toast("Wisdom #" + data.id + (replacing ? " replaced" : " added"));
+      toast("Guru's msg #" + data.id + (replacing ? " replaced" : " added"));
       loadRecent();
     } catch (err) {
       result.innerHTML = `<div class="ar-err">${escapeHtml(err.message)}</div>`;
@@ -2336,7 +2336,7 @@ function initIdNav() {
   if (!btn || !pop) return;
   document.body.appendChild(pop);   // escape the topbar's overflow like the date popover
   pop.innerHTML = `<form class="id-nav-form">
-    <label for="id-nav-input">Go to wisdom ID</label>
+    <label for="id-nav-input">Go to Guru's msg number</label>
     <div class="id-nav-row"><input id="id-nav-input" type="number" inputmode="numeric" min="1" step="1" placeholder="e.g. 3420" autocomplete="off"><button type="submit" class="btn primary">Go</button></div>
     <div class="id-nav-hint"></div></form>`;
   const input = pop.querySelector("#id-nav-input");
@@ -2360,7 +2360,7 @@ function initIdNav() {
   pop.querySelector("form").addEventListener("submit", (e) => {
     e.preventDefault();
     const id = parseInt(input.value, 10);
-    if (!id || id < 1) { hint.textContent = "Enter a valid wisdom ID."; return; }
+    if (!id || id < 1) { hint.textContent = "Enter a valid Guru's msg number."; return; }
     pop.hidden = true;
     selectStage(id);   // shows it on the home stage, or opens the entry page elsewhere
   });
@@ -2454,31 +2454,43 @@ const MOBILE_UI = (() => {
     </header>
     <nav class="m-bottom" id="m-bottom">
       <button class="m-menu-btn" id="m-menu-btn">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
         <span>Menu</span>
+      </button>
+      <button class="m-menu-btn m-comm-btn" id="m-comm-btn">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Community</span>
       </button>
       <div class="m-langseg" id="m-langseg" role="group" aria-label="Language">
         <button data-lang="hi" class="active">हिंदी</button>
         <button data-lang="en">English</button>
       </div>
     </nav>
+    <button class="m-home-fab" id="m-home-fab" title="Latest Guru's msg" aria-label="Latest Guru's msg">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>
+    </button>
     <div class="m-scrim" id="m-scrim" hidden></div>
     <aside class="m-drawer" id="m-drawer" aria-label="Menu">
       <a class="m-account" id="m-account-row" href="#/m/account"></a>
       <nav class="m-menu">
         <a href="#/m/search"><span class="mi">🔍</span> Search By</a>
         <a href="#/m/community"><span class="mi">💬</span> Community</a>
-        <a href="#/m/anushthan"><span class="mi">🪔</span> Anushthan Message</a>
-        <a href="#/m/special"><span class="mi">✨</span> Special Message</a>
-        <a href="#/m/contact"><span class="mi">✉️</span> Message to Admin</a>
-        <div class="m-menu-sep">More</div>
-        <a href="#/?latest=1"><span class="mi">🌅</span> Today's Wisdom</a>
-        <a href="#/favorites"><span class="mi">♥</span> Favorites</a>
-        <a href="#/browse/date"><span class="mi">📅</span> Browse by Date</a>
-        <a href="#/random"><span class="mi">🎲</span> Random Wisdom</a>
-        <a href="#/stats"><span class="mi">📊</span> Statistics</a>
-        <a href="#/settings"><span class="mi">⚙️</span> Settings</a>
-        <a href="#/about"><span class="mi">🕉️</span> About</a>
+        <button class="m-menu-group" data-group="other"><span class="mi">🗂️</span> Other Messages <span class="m-caret">▾</span></button>
+        <div class="m-submenu" data-sub="other" hidden>
+          <a href="#/m/anushthan"><span class="mi">🪔</span> Anushthan Msg</a>
+          <a href="#/m/special"><span class="mi">✨</span> Special Msg</a>
+        </div>
+        <a href="#/random"><span class="mi">🎲</span> Guru's Unique Msg</a>
+        <button class="m-menu-group" data-group="more"><span class="mi">➕</span> More <span class="m-caret">▾</span></button>
+        <div class="m-submenu" data-sub="more" hidden>
+          <a href="#/?latest=1"><span class="mi">🌅</span> Today's Guru's Msg</a>
+          <a href="#/favorites"><span class="mi">♥</span> Favorites</a>
+          <a href="#/browse/date"><span class="mi">📅</span> Browse by Date</a>
+          <a href="#/stats"><span class="mi">📊</span> Statistics</a>
+          <a href="#/m/contact"><span class="mi">✉️</span> Message to Admin</a>
+          <a href="#/settings"><span class="mi">⚙️</span> Settings</a>
+          <a href="#/about"><span class="mi">🕉️</span> About</a>
+        </div>
       </nav>
     </aside>
     <div class="m-exit" id="m-exit" hidden>
@@ -2508,9 +2520,24 @@ const MOBILE_UI = (() => {
   function closeDrawer() {
     const was = $("m-drawer").classList.contains("open");
     $("m-drawer").classList.remove("open"); $("m-scrim").hidden = true;
+    // Fold the accordions so the drawer always reopens showing only the 5 main items.
+    $("m-drawer").querySelectorAll(".m-submenu").forEach((s) => { s.hidden = true; });
+    $("m-drawer").querySelectorAll(".m-menu-group").forEach((g) => g.classList.remove("open"));
     return was;
   }
+  // Accordion groups (Other Messages / More)
+  $("m-drawer").querySelectorAll(".m-menu-group").forEach((g) => {
+    g.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sub = $("m-drawer").querySelector(`.m-submenu[data-sub="${g.dataset.group}"]`);
+      const opening = sub.hidden;
+      sub.hidden = !opening;
+      g.classList.toggle("open", opening);
+    });
+  });
   $("m-menu-btn").addEventListener("click", openDrawer);
+  $("m-comm-btn").addEventListener("click", () => go("#/m/community"));
+  $("m-home-fab").addEventListener("click", () => go("#/?latest=1"));
   $("m-scrim").addEventListener("click", closeDrawer);
   $("m-drawer").addEventListener("click", (e) => { if (e.target.closest("a")) closeDrawer(); });
   $("m-back").addEventListener("click", () => history.back());
@@ -2587,8 +2614,8 @@ const MOBILE_UI = (() => {
       renderViewer(e, isHome);
     } catch (err) {
       if (!current(nav)) return;
-      setChrome("page", "Wisdom");
-      $view.innerHTML = `<div class="m-page"><div class="empty">Wisdom #${escapeHtml(String(id || ""))} not found.</div></div>`;
+      setChrome("page", "Guru's msg");
+      $view.innerHTML = `<div class="m-page"><div class="empty">Guru's msg #${escapeHtml(String(id || ""))} not found.</div></div>`;
     }
   }
 
@@ -2623,8 +2650,6 @@ const MOBILE_UI = (() => {
         <div class="m-face m-back">${faceHtml(e, "en")}</div>
       </div></div>
       <div class="m-extras"></div>
-      <button class="m-nav m-nav-older" aria-label="Older" hidden>‹</button>
-      <button class="m-nav m-nav-newer" aria-label="Newer" hidden>›</button>
     </div>`);
     const flip = v.querySelector(".m-flip");
     // Arriving with English already selected (swiping day to day): show the
@@ -2665,11 +2690,8 @@ const MOBILE_UI = (() => {
       setTimeout(syncHeight, 720);
     };
 
-    // Older / newer: swipe anywhere on the viewer, or the edge arrows.
+    // Older / newer: swipe anywhere on the viewer.
     api("/api/entry/" + encodeURIComponent(e.id) + "/neighbors").then((n) => {
-      const older = v.querySelector(".m-nav-older"), newer = v.querySelector(".m-nav-newer");
-      if (n.older_id) { older.hidden = false; older.onclick = () => go("#/entry/" + n.older_id); }
-      if (n.newer_id) { newer.hidden = false; newer.onclick = () => go("#/entry/" + n.newer_id); }
       let sx = 0, sy = 0;
       v.addEventListener("touchstart", (t) => { sx = t.touches[0].clientX; sy = t.touches[0].clientY; }, { passive: true });
       v.addEventListener("touchend", (t) => {
@@ -2694,9 +2716,9 @@ const MOBILE_UI = (() => {
   }
 
   // ---- Search By (word / date / number) -----------------------------------
-  function resultItem(r) {
+  function resultItem(r, hrefFor) {
     const prev = (r.preview_hi || r.preview_en || r.body_hi || r.body_en || "").slice(0, 90);
-    const it = el(`<a class="m-result" href="#/entry/${r.id}">
+    const it = el(`<a class="m-result" href="${hrefFor(r.id)}">
       ${thumbImg(r)}
       <div class="m-r-meta">
         <div class="m-r-top">#${r.id} · ${fmtDate(r.date)}</div>
@@ -2705,13 +2727,17 @@ const MOBILE_UI = (() => {
       </div></a>`);
     return it;
   }
-  function showResults(box, rows, emptyMsg) {
+  function showResults(box, rows, emptyMsg, hrefFor) {
     box.innerHTML = "";
     if (!rows.length) { box.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
-    rows.forEach((r) => box.appendChild(resultItem(r)));
+    rows.forEach((r) => box.appendChild(resultItem(r, hrefFor)));
   }
 
   function searchPage(params) {
+    // for=chat → picking a Guru's msg for the community chat: results open the
+    // chat on that msg instead of the reader.
+    const forChat = !!(params && params.get("for") === "chat");
+    const hrefFor = (id) => forChat ? "#/m/community?wid=" + id : "#/entry/" + id;
     const node = el(`<div>
       <div class="m-tabs">
         <button data-t="word" class="active">Word</button>
@@ -2721,49 +2747,52 @@ const MOBILE_UI = (() => {
       <div class="m-tabbody"></div>
       <div class="m-results"></div>
     </div>`);
-    pageFrame("Search By", node);
+    pageFrame(forChat ? "Choose Guru's Msg" : "Search By", node);
     const body = node.querySelector(".m-tabbody");
     const results = node.querySelector(".m-results");
 
     const tabs = {
       word() {
         body.innerHTML = `<div class="m-inputrow">
-          <input type="search" id="m-q" placeholder="Search in English or Hindi…" autocomplete="off">
-          <button class="btn primary" id="m-q-go">Search</button></div>`;
+          <input type="search" id="m-q" placeholder="Search in English or Hindi…" autocomplete="off"></div>`;
         const q = body.querySelector("#m-q");
+        let deb = null, seq = 0;
         const run = async () => {
-          if (!q.value.trim()) return;
-          results.innerHTML = `<div class="loading">Searching…</div>`;
+          const term = q.value.trim();
+          if (!term) { results.innerHTML = ""; return; }
+          const mySeq = ++seq;
           try {
-            const d = await api("/api/search?q=" + encodeURIComponent(q.value.trim()));
-            results.innerHTML = `<div class="m-count">${d.count} wisdom entr${d.count === 1 ? "y" : "ies"} found</div>`;
+            const d = await api("/api/search?q=" + encodeURIComponent(term));
+            if (mySeq !== seq) return;   // a newer keystroke's search already ran
+            results.innerHTML = `<div class="m-count">${d.count} Guru's msg${d.count === 1 ? "" : "s"} found</div>`;
             const list = el(`<div></div>`); results.appendChild(list);
-            showResults(list, d.results, "");
-          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+            showResults(list, d.results, "", hrefFor);
+          } catch (err) { if (mySeq === seq) results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
         };
-        body.querySelector("#m-q-go").addEventListener("click", run);
-        q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); run(); } });
+        // Live search: results appear as you type.
+        q.addEventListener("input", () => { clearTimeout(deb); deb = setTimeout(run, 250); });
+        q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); clearTimeout(deb); run(); } });
         q.focus();
       },
       date() {
         body.innerHTML = `<div class="m-inputrow"><input type="date" id="m-d"></div>
-          <div class="m-hint">Pick a day to see its wisdom.</div>`;
+          <div class="m-hint">Pick a day to see its Guru's msg.</div>`;
         body.querySelector("#m-d").addEventListener("change", async (ev) => {
           const iso = ev.target.value; if (!iso) return;
           results.innerHTML = `<div class="loading">Loading…</div>`;
           try {
             const d = await api("/api/browse?date=" + encodeURIComponent(iso));
-            if (d.results.length === 1) { go("#/entry/" + d.results[0].id); return; }
-            showResults(results, d.results, "Guru's message was not shared on this day.");
+            if (d.results.length === 1) { go(hrefFor(d.results[0].id)); return; }
+            showResults(results, d.results, "Guru's msg was not shared on this day.", hrefFor);
           } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
         });
       },
       number() {
         body.innerHTML = `<div class="m-inputrow">
-          <input type="text" id="m-n" inputmode="numeric" placeholder="Wisdom number, e.g. 3446">
+          <input type="text" id="m-n" inputmode="numeric" placeholder="Guru's msg number, e.g. 3446">
           <button class="btn primary" id="m-n-go">Open</button></div>`;
         const n = body.querySelector("#m-n");
-        const goN = () => { const v = n.value.trim(); if (v) go("#/entry/" + encodeURIComponent(v)); };
+        const goN = () => { const v = n.value.trim(); if (v) go(hrefFor(encodeURIComponent(v))); };
         body.querySelector("#m-n-go").addEventListener("click", goN);
         n.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); goN(); } });
         n.focus();
@@ -2778,11 +2807,43 @@ const MOBILE_UI = (() => {
     tabs.word();
   }
 
-  // ---- Community (full page, reuses the community tab renderer) -----------
-  function communityPage() {
-    const body = el(`<div class="m-community"></div>`);
-    pageFrame("Community", body);
-    renderCommunityTab(body);
+  // ---- Community (full page, WhatsApp-style) -------------------------------
+  const MONTHS = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  function fmtHumanDate(iso) {
+    if (!iso) return "";
+    const [y, m, d] = iso.split("-").map(Number);
+    return `${d} ${MONTHS[m - 1] || ""} ${y}`;
+  }
+  async function communityPage(params) {
+    const pick = params && params.get("wid");
+    const wid = pick || _stageId || store.lastViewed();
+    const node = el(`<div class="m-community"></div>`);
+    pageFrame("Community", node);
+    if (!wid) {
+      node.innerHTML = `<div class="empty">Open a Guru's msg first, then join its discussion here.</div>`;
+      return;
+    }
+    if (pick) store.setLastViewed(wid);
+    _stageId = wid;
+    // Header: human date + subject of the msg under discussion; tapping it
+    // lets the user pick a different Guru's msg for the chat.
+    const head = el(`<button class="m-chat-head" title="Change Guru's msg">
+        <div class="m-ch-text"><div class="m-ch-date">Loading…</div><div class="m-ch-topic"></div></div>
+        <span class="m-ch-change">Change ▾</span>
+      </button>`);
+    const body = el(`<div class="m-chatbody"></div>`);
+    node.appendChild(head);
+    node.appendChild(body);
+    head.addEventListener("click", () => go("#/m/search?for=chat"));
+    api("/api/entry/" + encodeURIComponent(wid)).then((e) => {
+      head.querySelector(".m-ch-date").textContent = fmtHumanDate(e.date) + (e.weekday ? " · " + e.weekday : "");
+      head.querySelector(".m-ch-topic").textContent = e.topic_hi || e.topic_en || "";
+    }).catch(() => { head.querySelector(".m-ch-date").textContent = "Guru's msg #" + wid; });
+    await renderWisdomChat(body, wid);
+    // WhatsApp reading order: open at the latest message (bottom).
+    const msgs = body.querySelector("#wc-msgs");
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
   }
 
   // ---- placeholders (content arrives later) -------------------------------
@@ -2865,9 +2926,9 @@ const MOBILE_UI = (() => {
   }
 
   // ---- router --------------------------------------------------------------
-  const PAGE_TITLES = { favorites: "Favorites", browse: "Browse by Date", random: "Random Wisdom",
+  const PAGE_TITLES = { favorites: "Favorites", browse: "Browse by Date", random: "Guru's Unique Msg",
     stats: "Statistics", settings: "Settings", about: "About", help: "Help & Support",
-    moderator: "Moderator", admin: "Add Wisdom", search: "Search" };
+    moderator: "Moderator", admin: "Add Guru's Msg", search: "Search" };
 
   return {
     active,
@@ -2879,7 +2940,7 @@ const MOBILE_UI = (() => {
       if (seg[0] === "entry") return viewer(seg[1], null, false);
       const p = seg[1];
       if (p === "search") return searchPage(params);
-      if (p === "community") return communityPage();
+      if (p === "community") return communityPage(params);
       if (p === "anushthan") return placeholderPage("Anushthan Message", "अनुष्ठान संदेश");
       if (p === "special") return placeholderPage("Special Message", "विशेष संदेश");
       if (p === "contact") return contactPage();

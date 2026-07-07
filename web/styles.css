@@ -1272,3 +1272,55 @@ body.m-mode .page-head { padding-top: 4px; }
 .m-exit-q { font: 600 16px var(--sans); color: var(--text); margin-bottom: 18px; }
 .m-exit-btns { display: flex; gap: 10px; }
 .m-exit-btns .btn { flex: 1; padding: 12px 0; border-radius: 12px; font-size: 15px; }
+
+/* ---- mobile shell v2: home FAB, 3-button bottom bar, accordion menu,
+       WhatsApp-style community chat ---- */
+
+/* bottom bar now holds Menu · Community · language — compact pills */
+.m-menu-btn { padding: 9px 13px; font-size: 13.5px; gap: 6px; }
+.m-langseg button { padding: 9px 13px; font-size: 13.5px; }
+
+/* floating home button above the language toggle (viewer pages only) */
+.m-home-fab {
+  position: fixed; right: 14px; bottom: calc(78px + env(safe-area-inset-bottom));
+  z-index: 590; width: 48px; height: 48px; border-radius: 50%;
+  border: none; cursor: pointer; display: none;
+  align-items: center; justify-content: center;
+  background: var(--accent); color: #fff;
+  box-shadow: 0 4px 16px rgba(40, 30, 60, .3);
+}
+body.m-mode.m-viewing .m-home-fab { display: flex; }
+.m-home-fab:active { transform: scale(.94); }
+
+/* accordion groups in the drawer */
+.m-menu-group {
+  display: flex; align-items: center; gap: 14px; padding: 13px 20px;
+  width: 100%; border: none; background: none; cursor: pointer; text-align: left;
+  font: 500 15.5px var(--sans); color: var(--text);
+}
+.m-menu-group:active { background: var(--accent-soft, #f6e7dc); }
+.m-menu-group .m-caret { margin-left: auto; color: var(--muted); transition: transform .2s ease; }
+.m-menu-group.open .m-caret { transform: rotate(180deg); }
+.m-submenu { background: var(--bg); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.m-submenu a { padding-left: 38px; font-size: 14.5px; }
+
+/* community chat header: human date + subject, tap to change */
+.m-chat-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 12px 14px; margin-bottom: 8px; cursor: pointer; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+}
+.m-ch-text { flex: 1; min-width: 0; }
+.m-ch-date { font: 700 14.5px var(--sans); color: var(--text); }
+.m-ch-topic { font: 500 13px var(--sans); color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-ch-change { font: 600 12px var(--sans); color: var(--muted); flex: none; }
+
+/* WhatsApp-style chat: fill the viewport, messages scroll, composer pinned */
+body.m-mode .m-community { display: flex; flex-direction: column; height: calc(100vh - 78px - env(safe-area-inset-top)); min-height: 0; }
+body.m-mode .m-chatbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.m-mode .m-chatbody .wc-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.m-mode .m-chatbody .wc-hdr { display: none; }   /* replaced by .m-chat-head */
+body.m-mode .m-chatbody .wc-msgs { flex: 1; min-height: 0; overflow-y: auto; }
+body.m-mode .m-chatbody .wc-foot { flex: none; }
+body.m-mode .m-chatbody .wc-ta { min-height: 64px; font-size: 15.5px; }
+body.m-mode .m-chatbody .wc-send { padding: 12px 22px; font-size: 15px; }
