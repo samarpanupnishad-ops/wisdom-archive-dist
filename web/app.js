@@ -2523,7 +2523,9 @@ const MOBILE_UI = (() => {
   }
 
   // ---- language toggle (bottom bar) → flips the current viewer ----------
-  let flipTo = null;   // set by the active viewer
+  let flipTo = null;     // set by the active viewer
+  let prefLang = "hi";   // Hindi on every app open; the user's flip choice then
+                         // sticks while stepping older/newer within this session
   function paintLang(lang) {
     $("m-langseg").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
   }
@@ -2571,7 +2573,11 @@ const MOBILE_UI = (() => {
     store.setLastViewed(e.id);
     setChrome(isHome ? "home" : "viewer", "Wisdom Archive", e);
 
-    let lang = e.img_hi_url || e.body_hi ? "hi" : "en";   // Hindi first, always
+    // Start from the language the user last chose (Hindi on a fresh open),
+    // falling back when this day lacks that language.
+    let lang = prefLang;
+    if (lang === "hi" && !(e.img_hi_url || e.body_hi)) lang = "en";
+    if (lang === "en" && !(e.img_en_url || e.body_en)) lang = "hi";
     paintLang(lang);
 
     const v = el(`<div class="m-viewer">
@@ -2587,10 +2593,16 @@ const MOBILE_UI = (() => {
       <button class="m-nav m-nav-older" aria-label="Older" hidden>‹</button>
       <button class="m-nav m-nav-newer" aria-label="Newer" hidden>›</button>
     </div>`);
-    $view.replaceChildren(v);
-
     const flip = v.querySelector(".m-flip");
-    const inner = v.querySelector(".m-flip-inner");
+    // Arriving with English already selected (swiping day to day): show the
+    // English face directly — the flip animates only on an actual toggle.
+    if (lang === "en") {
+      flip.classList.add("flipped");
+      const inner = flip.querySelector(".m-flip-inner");
+      inner.style.transition = "none";
+      requestAnimationFrame(() => { inner.style.transition = ""; });
+    }
+    $view.replaceChildren(v);
 
     // Faces are absolutely positioned (3D flip), so the container's height is
     // driven manually: always the height of the face currently shown.
@@ -2612,6 +2624,7 @@ const MOBILE_UI = (() => {
     flipTo = (l) => {
       if (l === lang) return;
       lang = l;
+      prefLang = l;
       paintLang(lang);
       flip.classList.toggle("flipped", lang === "en");   // the book-flip
       renderExtras();
