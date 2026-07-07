@@ -1580,6 +1580,7 @@ function renderInfo(kind) {
     // Mobile app only: daily-reminder settings + mobile-appropriate wording
     // (wa-native.js owns all of it; no-op on desktop).
     if (window.WA_NATIVE && WA_NATIVE.enhanceSettings) WA_NATIVE.enhanceSettings();
+    if (MOBILE_UI.active && MOBILE_UI.enhanceSettings) MOBILE_UI.enhanceSettings();
   }
 }
 
@@ -2556,6 +2557,7 @@ const MOBILE_UI = (() => {
   let _lastBackAt = 0;
   function onHardwareBack() {
     if (hideExitSheet()) return;
+    if (exitZoom()) return;
     if (closeDrawer()) return;
     const atHome = !location.hash || /^#\/?(\?.*)?$/.test(location.hash);
     if (atHome) {
@@ -2588,6 +2590,99 @@ const MOBILE_UI = (() => {
       paint();
       fav.onclick = () => { store.toggleFav(entry.id); paint(); };
     } else { fav.hidden = true; fav.onclick = null; }
+  }
+
+  // ---- user display preferences (zoom bar / home button side) -----------
+  function pref(k, d) { try { return localStorage.getItem(k) || d; } catch { return d; } }
+  function setPref(k, v) { try { localStorage.setItem(k, v); } catch {} }
+  function applyHomeSide() {
+    $("m-home-fab").classList.toggle("m-left", pref("wa:mobile:homeSide", "right") === "left");
+  }
+  applyHomeSide();
+
+  // ---- zoom mode (double-tap the image) ----------------------------------
+  // Full-screen dark viewer with a vertical zoom bar on the chosen edge:
+  // bottom = thumbnail (0.25x), middle notch = normal (1x), top = 4x.
+  // One finger drags the zoomed image, two fingers pinch (the knob follows).
+  // Double-tap again (or Android back) returns to the normal reader.
+  let zoomWrap = null;
+  const zScale = (v) => 0.25 * Math.pow(16, v / 100);          // 0→.25  50→1  100→4
+  const zValue = (s) => 100 * Math.log(s / 0.25) / Math.log(16);
+  function tDist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+  function wireDoubleTap(elm, fn) {
+    let last = 0, lx = 0, ly = 0;
+    elm.addEventListener("touchend", (e) => {
+      const t = e.changedTouches[0]; if (!t) return;
+      const now = Date.now();
+      if (now - last < 350 && Math.hypot(t.clientX - lx, t.clientY - ly) < 40) { last = 0; fn(); }
+      else { last = now; lx = t.clientX; ly = t.clientY; }
+    });
+    elm.addEventListener("dblclick", fn);   // browser test mode
+  }
+  function exitZoom() {
+    if (!zoomWrap) return false;
+    zoomWrap.remove(); zoomWrap = null;
+    document.body.classList.remove("m-zoom");
+    return true;
+  }
+  function enterZoom(imgSrc) {
+    exitZoom();
+    document.body.classList.add("m-zoom");
+    const side = pref("wa:mobile:zoomBarSide", "right");
+    zoomWrap = el(`<div class="m-zoomwrap${side === "left" ? " m-left" : ""}">
+      <div class="m-zoomview"><img src="${imgSrc}" alt="" draggable="false"></div>
+      <div class="m-zoombar"><div class="m-zb-track">
+        <div class="m-zb-mid"></div><div class="m-zb-knob"></div>
+      </div></div>
+    </div>`);
+    document.body.appendChild(zoomWrap);
+    const img = zoomWrap.querySelector("img");
+    const view = zoomWrap.querySelector(".m-zoomview");
+    const track = zoomWrap.querySelector(".m-zb-track");
+    const knob = zoomWrap.querySelector(".m-zb-knob");
+    let v = 50, tx = 0, ty = 0;
+    const apply = () => {
+      const s = zScale(v);
+      const mx = Math.max(0, (img.clientWidth * s - view.clientWidth) / 2);
+      const my = Math.max(0, (img.clientHeight * s - view.clientHeight) / 2);
+      tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
+      img.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+      knob.style.top = (100 - v) + "%";
+    };
+    img.addEventListener("load", apply);
+    apply();
+    // --- vertical bar
+    const setFromY = (clientY) => {
+      const r = track.getBoundingClientRect();
+      v = Math.max(0, Math.min(100, 100 - ((clientY - r.top) / r.height) * 100));
+      apply();
+    };
+    track.addEventListener("touchstart", (e) => { e.stopPropagation(); setFromY(e.touches[0].clientY); }, { passive: true });
+    track.addEventListener("touchmove", (e) => { e.stopPropagation(); setFromY(e.touches[0].clientY); }, { passive: true });
+    track.addEventListener("mousedown", (e) => {
+      e.preventDefault(); setFromY(e.clientY);
+      const mv = (ev) => setFromY(ev.clientY);
+      const up = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); };
+      window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
+    });
+    // --- one-finger pan, two-finger pinch
+    let p0 = null, pinch0 = null;
+    view.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 1) { p0 = { x: e.touches[0].clientX, y: e.touches[0].clientY }; pinch0 = null; }
+      else if (e.touches.length === 2) { pinch0 = { d: tDist(e.touches), v }; p0 = null; }
+    }, { passive: true });
+    view.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 1 && p0) {
+        tx += e.touches[0].clientX - p0.x; ty += e.touches[0].clientY - p0.y;
+        p0 = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        apply();
+      } else if (e.touches.length === 2 && pinch0) {
+        v = Math.max(0, Math.min(100, zValue(zScale(pinch0.v) * tDist(e.touches) / pinch0.d)));
+        apply();
+      }
+    }, { passive: true });
+    view.addEventListener("touchend", (e) => { if (!e.touches.length) { p0 = null; pinch0 = null; } }, { passive: true });
+    wireDoubleTap(view, exitZoom);
   }
 
   // ---- language toggle (bottom bar) → flips the current viewer ----------
@@ -2686,6 +2781,12 @@ const MOBILE_UI = (() => {
       extrasBox.innerHTML = pages.map((x) => `<img src="${x.url}" alt="" loading="lazy" decoding="async">`).join("");
     };
     renderExtras();
+
+    // Double-tap the image → full-screen zoom mode on the visible language.
+    wireDoubleTap(flip, () => {
+      const im = v.querySelector(lang === "hi" ? ".m-front img" : ".m-back img");
+      if (im && im.getAttribute("src")) enterZoom(im.getAttribute("src"));
+    });
 
     flipTo = (l) => {
       if (l === lang) return;
@@ -2943,6 +3044,7 @@ const MOBILE_UI = (() => {
     handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m"; },
     async route(seg, params) {
       closeDrawer();
+      exitZoom();
       closeChatStream();
       if (!seg.length) return viewer(null, params, true);
       if (seg[0] === "entry") return viewer(seg[1], null, false);
@@ -2957,8 +3059,29 @@ const MOBILE_UI = (() => {
     },
     fallthrough(seg) {
       closeDrawer();
+      exitZoom();
       flipTo = null;
       setChrome("page", PAGE_TITLES[seg[0]] || "Samarpan Upnishad", null);
+    },
+    enhanceSettings() {
+      // Temporary "Display" card at the BOTTOM of Settings (the settings page
+      // will be reorganised later). Two slide switches; off = right side.
+      const prose = document.querySelector(".content .prose");
+      if (!prose || document.getElementById("m-display-box")) return;
+      const box = el(`<div class="sync-box" id="m-display-box">
+        <h3 style="margin-top:0">Display</h3>
+        <label class="m-switchrow">Zoom bar on left side
+          <span class="m-switch"><input type="checkbox" id="m-zb-side"><i></i></span></label>
+        <label class="m-switchrow">Home button on left side
+          <span class="m-switch"><input type="checkbox" id="m-home-side"><i></i></span></label>
+        <div class="m-hint">Double-tap a Guru's msg image to open zoom. Off = right side (default).</div>
+      </div>`);
+      prose.appendChild(box);
+      const zb = box.querySelector("#m-zb-side"), hb = box.querySelector("#m-home-side");
+      zb.checked = pref("wa:mobile:zoomBarSide", "right") === "left";
+      hb.checked = pref("wa:mobile:homeSide", "right") === "left";
+      zb.addEventListener("change", () => setPref("wa:mobile:zoomBarSide", zb.checked ? "left" : "right"));
+      hb.addEventListener("change", () => { setPref("wa:mobile:homeSide", hb.checked ? "left" : "right"); applyHomeSide(); });
     },
   };
 })();
