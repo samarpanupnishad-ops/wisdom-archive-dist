@@ -1,0 +1,186 @@
+"use strict";
+// ==========================================================================
+// Wisdom Archive — Supabase community client (Phase 1).
+//
+// The archive (search, entries, images) stays on the LOCAL FastAPI app. Only
+// chat + accounts live in the cloud now, on Supabase. This file creates the
+// Supabase client and exposes `window.WA` — a small facade whose methods return
+// the SAME shapes the old /api/auth and /api/chat endpoints did, so app.js's
+// rendering code barely changes.
+//
+// The anon (public) key is meant to ship in the app; Row Level Security on the
+// Supabase side (see supabase/schema.sql) is what actually protects the data.
+// ==========================================================================
+
+const WA_SUPABASE_URL = "https://rykofkjrgcktydcliuqy.supabase.co";
+const WA_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5a29ma2pyZ2NrdHlkY2xpdXF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5OTg5MzksImV4cCI6MjA5ODU3NDkzOX0.XxF0LOHlfx7BcEm5oeRTas1F4g4PvCS215Qg5awCrR8";
+
+const _sb = supabase.createClient(WA_SUPABASE_URL, WA_SUPABASE_ANON_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, storageKey: "wa:sb-session" },
+});
+
+const USERNAME_RE = /^[A-Za-z0-9_]{3,20}$/;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+// Turn a Supabase Auth error into the plain-English text the old API returned.
+function _authMsg(error) {
+  const m = (error && error.message) || "Something went wrong.";
+  if (/invalid login credentials/i.test(m)) return "Wrong email or password.";
+  if (/already registered|already exists/i.test(m)) return "An account with that email already exists.";
+  if (/email.*confirm|confirm.*email/i.test(m)) return "Please confirm your email, then sign in.";
+  return m;
+}
+
+// A profile row → the `user` object the UI uses (matches auth.py _public_user).
+function _userFromProfile(p) {
+  return {
+    id: p.id, username: p.username, role: p.role, email: p.email,
+    chat_muted: !!p.chat_muted, chat_credits: p.chat_credits, created: p.created,
+  };
+}
+function _mapMsg(row) {
+  return { id: row.id, user: row.username, text: row.text, ts: row.created_at };
+}
+
+async function _loadProfile(uid) {
+  const { data, error } = await _sb.from("profiles").select("*").eq("id", uid).single();
+  if (error) throw new Error(error.message);
+  return _userFromProfile(data);
+}
+async function _rpc(name, args) {
+  const { data, error } = await _sb.rpc(name, args || {});
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+const WA = {
+  // ----- Auth -----------------------------------------------------------
+  async login(email, password) {
+    const { data, error } = await _sb.auth.signInWithPassword({ email: (email || "").trim(), password });
+    if (error) throw new Error(_authMsg(error));
+    return { token: data.session.access_token, user: await _loadProfile(data.user.id) };
+  },
+
+  async register(username, email, password) {
+    username = (username || "").trim();
+    email = (email || "").trim();
+    if (!USERNAME_RE.test(username)) throw new Error("Username must be 3–20 letters, numbers, or underscores.");
+    if (!EMAIL_RE.test(email)) throw new Error("Please enter a valid email address.");
+    if ((password || "").length < 6) throw new Error("Password must be at least 6 characters.");
+    const { data, error } = await _sb.auth.signUp({ email, password, options: { data: { username } } });
+    if (error) throw new Error(_authMsg(error));
+    if (!data.session) throw new Error("Account created. Please confirm your email, then sign in.");
+    return { token: data.session.access_token, user: await _loadProfile(data.user.id) };
+  },
+
+  async logout() { try { await _sb.auth.signOut(); } catch (_) {} },
+
+  // Current session + fresh profile (used on boot to refresh role/state).
+  async me() {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) throw new Error("Not signed in.");
+    return { token: session.access_token, user: await _loadProfile(session.user.id) };
+  },
+
+  async authConfig() {
+    const { data } = await _sb.from("app_settings").select("value").eq("key", "signup_enabled").maybeSingle();
+    return { signup_enabled: !data || data.value === "1" };
+  },
+
+  // ----- Conclusions ----------------------------------------------------
+  getConclusion(wid) { return _rpc("get_conclusion", { wid: String(wid) }); },
+  saveConclusion(wid, text, visibility) {
+    return _rpc("save_conclusion", { wid: String(wid), body_text: text, vis: visibility || "public" });
+  },
+
+  // ----- Chat -----------------------------------------------------------
+  // Returns {messages, can_moderate, me, credits_remaining, is_muted} or throws
+  // an Error tagged with .code = "AUTH" (not signed in) / "FORBIDDEN" (not a member).
+  async getChat(wid) {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) throw Object.assign(new Error("Not signed in."), { code: "AUTH" });
+    const user = await _loadProfile(session.user.id);
+    const isMod = user.role === "moderator" || user.role === "parmatma";
+    if (!(isMod || user.role === "member")) {
+      throw Object.assign(new Error("Members only."), { code: "FORBIDDEN" });
+    }
+    const { data, error } = await _sb.from("messages").select("*")
+      .eq("wisdom_id", String(wid)).order("created_at", { ascending: true });
+    if (error) throw new Error(error.message);
+    const res = { messages: (data || []).map(_mapMsg), can_moderate: isMod, me: user.username };
+    if (!isMod) { res.credits_remaining = user.chat_credits; res.is_muted = !!user.chat_muted; }
+    return res;
+  },
+
+  // Returns {message, credits_remaining}; throws Error.code MUTED / NO_CREDITS
+  // so the UI can react exactly as it did to the old 403 detail codes.
+  async postMessage(wid, text) {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) throw Object.assign(new Error("Not signed in."), { code: "AUTH" });
+    const me = await _loadProfile(session.user.id);
+    const isMod = me.role === "moderator" || me.role === "parmatma";
+    if (!isMod) {
+      if (me.chat_muted) throw Object.assign(new Error("You have been muted."), { code: "MUTED" });
+      if (me.role === "member" && me.chat_credits <= 0) throw Object.assign(new Error("No credits."), { code: "NO_CREDITS" });
+    }
+    const { data, error } = await _sb.from("messages")
+      .insert({ wisdom_id: String(wid), text: text }).select("*").single();
+    if (error) throw new Error(error.message);
+    let credits_remaining = null;
+    if (!isMod && me.role === "member") credits_remaining = Math.max(0, me.chat_credits - 1);
+    return { message: _mapMsg(data), credits_remaining };
+  },
+
+  async deleteMessage(wid, mid) {
+    const { error } = await _sb.from("messages").delete().eq("id", mid);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+  async clearChat(wid) {
+    const { error } = await _sb.from("messages").delete().eq("wisdom_id", String(wid));
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+  requestCredits() { return _rpc("request_credits"); },
+
+  // Live chat via Supabase Realtime (replaces the SSE stream). Returns a handle
+  // with .close(). onMessage(msg) / onDelete(id) fire on inserts/deletes.
+  subscribeChat(wid, { onMessage, onDelete }) {
+    const filter = "wisdom_id=eq." + String(wid);
+    const ch = _sb.channel("wa-chat-" + wid)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter },
+          (p) => { if (onMessage) onMessage(_mapMsg(p.new)); })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages", filter },
+          (p) => { if (onDelete && p.old) onDelete(p.old.id); })
+      .subscribe();
+    return { close() { try { _sb.removeChannel(ch); } catch (_) {} } };
+  },
+
+  // Recent messages across all wisdoms (members+ only; guests get an empty list
+  // because RLS hides messages from non-members). Shape: {messages:[{user,wid,text,ts}]}.
+  async communityRecent(limit) {
+    const n = Math.max(1, Math.min(parseInt(limit, 10) || 20, 50));
+    const { data, error } = await _sb.from("messages")
+      .select("wisdom_id, username, text, created_at")
+      .order("created_at", { ascending: false }).limit(n);
+    if (error || !data) return { messages: [] };
+    return { messages: data.map((r) => ({ user: r.username, wid: r.wisdom_id, text: r.text, ts: r.created_at })) };
+  },
+
+  // ----- Moderator ------------------------------------------------------
+  listUsers() { return _rpc("list_users"); },
+  listMembers() { return _rpc("list_members"); },
+  setRole(id, role) { return _rpc("set_user_role", { uid: id, new_role: role }); },
+  renameUser(id, username) { return _rpc("rename_user", { uid: id, new_username: username }); },
+  deleteUser(id) { return _rpc("delete_user", { uid: id }); },
+  toggleMute(id) { return _rpc("toggle_mute", { uid: id }); },
+  setCredits(id, credits) { return _rpc("set_credits", { uid: id, credits }); },
+  transferLeadership(id) { return _rpc("transfer_leadership", { uid: id }); },
+  setSignup(enabled) { return _rpc("set_signup", { enabled }); },
+  listCreditRequests() { return _rpc("list_credit_requests"); },
+  approveCreditRequest(id, credits) { return _rpc("approve_credit_request", { rid: id, credits }); },
+  denyCreditRequest(id) { return _rpc("deny_credit_request", { rid: id }); },
+};
+
+window.WA = WA;
