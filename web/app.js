@@ -2642,8 +2642,11 @@ const MOBILE_UI = (() => {
       v.addEventListener("touchend", (t) => {
         const dx = t.changedTouches[0].clientX - sx, dy = t.changedTouches[0].clientY - sy;
         if (Math.abs(dx) < 60 || Math.abs(dy) > 70) return;
-        if (dx < 0 && n.older_id) go("#/entry/" + n.older_id);
-        if (dx > 0 && n.newer_id) go("#/entry/" + n.newer_id);
+        // Match the arrows' layout: ‹ older sits on the LEFT, › newer on the
+        // RIGHT. Swiping left pulls in the page from the right (newer) and
+        // vice versa; where an arrow is hidden the matching swipe does nothing.
+        if (dx < 0 && n.newer_id) go("#/entry/" + n.newer_id);
+        if (dx > 0 && n.older_id) go("#/entry/" + n.older_id);
       }, { passive: true });
     }).catch(() => {});
   }
