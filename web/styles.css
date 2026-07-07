@@ -1259,9 +1259,13 @@ body.m-mode .page-head { padding-top: 4px; }
 .m-exit {
   position: fixed; inset: 0; z-index: 800;
   background: rgba(20, 14, 30, .45);
-  display: flex; align-items: center; justify-content: center;
+  align-items: center; justify-content: center;
   padding: 0 30px;
 }
+/* `display` here must NOT be unconditional: an author `display` beats the
+   `hidden` attribute's UA rule, which made the popup show on app open. */
+.m-exit:not([hidden]) { display: flex; }
+.m-exit[hidden] { display: none !important; }
 .m-exit-card {
   width: 100%; max-width: 330px;
   background: var(--surface); border-radius: 20px;
