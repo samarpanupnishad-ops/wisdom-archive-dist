@@ -1254,20 +1254,22 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 body.m-mode .cards, body.m-mode .card-grid { grid-template-columns: 1fr 1fr; }
 body.m-mode .page-head { padding-top: 4px; }
 
-/* ---- exit confirmation sheet (Android back on the home screen) ---- */
+/* ---- exit confirmation popup (double-back on the home screen) ----
+   Centered modal so the bottom bar (Menu · Community · language) stays visible. */
 .m-exit {
   position: fixed; inset: 0; z-index: 800;
   background: rgba(20, 14, 30, .45);
-  display: flex; align-items: flex-end; justify-content: center;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 30px;
 }
 .m-exit-card {
-  width: 100%; max-width: 480px;
-  background: var(--surface); border-radius: 18px 18px 0 0;
-  padding: 22px 20px calc(20px + env(safe-area-inset-bottom));
-  text-align: center; animation: mslideup .22s ease;
-  box-shadow: 0 -8px 32px rgba(40, 30, 60, .25);
+  width: 100%; max-width: 330px;
+  background: var(--surface); border-radius: 20px;
+  padding: 26px 22px 20px;
+  text-align: center; animation: mpopin .18s ease;
+  box-shadow: 0 18px 48px rgba(40, 30, 60, .35);
 }
-@keyframes mslideup { from { transform: translateY(40%); opacity: .4; } }
+@keyframes mpopin { from { transform: scale(.86); opacity: 0; } }
 .m-exit-ico { font-size: 34px; margin-bottom: 8px; }
 .m-exit-q { font: 600 16px var(--sans); color: var(--text); margin-bottom: 18px; }
 .m-exit-btns { display: flex; gap: 10px; }

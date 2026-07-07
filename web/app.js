@@ -2553,11 +2553,19 @@ const MOBILE_UI = (() => {
     const app = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
     if (app && app.exitApp) app.exitApp(); else hideExitSheet();   // browser test mode
   });
+  let _lastBackAt = 0;
   function onHardwareBack() {
     if (hideExitSheet()) return;
     if (closeDrawer()) return;
     const atHome = !location.hash || /^#\/?(\?.*)?$/.test(location.hash);
-    if (atHome) { showExitSheet(); return; }
+    if (atHome) {
+      // Standard double-back-to-exit: first press hints, a second press within
+      // 2.5 s brings up the Exit/Stay popup.
+      const now = Date.now();
+      if (now - _lastBackAt < 2500) { _lastBackAt = 0; showExitSheet(); }
+      else { _lastBackAt = now; if (typeof toast === "function") toast("Press back again to exit"); }
+      return;
+    }
     const before = location.hash;
     history.back();
     // Deep-launched with no history to walk? Land on home instead of nowhere.
