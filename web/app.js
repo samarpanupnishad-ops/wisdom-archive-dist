@@ -1551,14 +1551,14 @@ async function renderStats() {
 function renderInfo(kind) {
   const title = { settings: "Settings", about: "About", help: "Help & Support" }[kind];
   const body = {
-    settings: `<h3>Settings</h3><p>Wisdom Archive runs locally on your computer. There is no account — your <strong>favorites</strong> and <strong>notes</strong> are stored privately in this browser.</p><ul><li>Use the « / » button to collapse or expand the sidebar.</li><li>Dark mode is coming soon.</li><li>To add a new day's Guru's msg, open <strong>Add Guru's Msg</strong> in the sidebar and drop in that day's files — it appears instantly, no restart needed.</li><li>To bulk-rebuild from all folders at once, you can still run the importer (<code>reimport.bat</code>).</li></ul>
+    settings: `<h3>Settings</h3><p>Samarpan Upnishad runs locally on your computer. There is no account — your <strong>favorites</strong> and <strong>notes</strong> are stored privately in this browser.</p><ul><li>Use the « / » button to collapse or expand the sidebar.</li><li>Dark mode is coming soon.</li><li>To add a new day's Guru's msg, open <strong>Add Guru's Msg</strong> in the sidebar and drop in that day's files — it appears instantly, no restart needed.</li><li>To bulk-rebuild from all folders at once, you can still run the importer (<code>reimport.bat</code>).</li></ul>
       <div class="sync-box">
         <h3 style="margin-top:0">Latest Guru's Msg Sync</h3>
         <p>Checks the central archive for any new day's Guru's msg and adds it here automatically.</p>
         <button class="btn primary" id="sync-now-btn">Sync now</button>
         <div id="sync-status" class="sync-status"></div>
       </div>`,
-    about: `<h3>About</h3><p>The Wisdom Archive is a digital library of daily spiritual Guru's msgs, searchable across English and Hindi transcripts. Each entry preserves the original images and their transcribed text.</p><p style="font-family:var(--serif);font-size:17px;color:var(--accent)">“The purpose of life is realisation of the Self.”<br>— Baba Swami</p><p style="margin-top:22px;color:var(--muted,#888);font-size:13px">Wisdom Archive · version <span id="wa-version">…</span></p>`,
+    about: `<h3>About</h3><p>Samarpan Upnishad is a digital library of daily spiritual Guru's msgs, searchable across English and Hindi transcripts. Each entry preserves the original images and their transcribed text.</p><p style="font-family:var(--serif);font-size:17px;color:var(--accent)">“The purpose of life is realisation of the Self.”<br>— Baba Swami</p><p style="margin-top:22px;color:var(--muted,#888);font-size:13px">Samarpan Upnishad · version <span id="wa-version">…</span></p>`,
     help: `<h3>Help &amp; Support</h3><p>Search any word in English or Hindi from the bar at the top — matching Guru's msgs appear with the word highlighted in yellow. Click a result to read it in full, with both images and transcripts.</p><ul><li><strong>Add to Favorites</strong> to save an entry; find them under Favorites.</li><li>Write private notes under <strong>My Comments</strong> on any entry.</li><li><strong>Browse</strong> by Date, Month, or Year from the sidebar.</li></ul>`,
   }[kind];
   $view.innerHTML = `<div class="page-title">${title}</div><div class="prose">${body}</div>`;
@@ -2449,7 +2449,7 @@ const MOBILE_UI = (() => {
   document.body.insertAdjacentHTML("beforeend", `
     <header class="m-top" id="m-top">
       <button class="m-back" id="m-back" aria-label="Back">‹</button>
-      <div class="m-title" id="m-title">Wisdom Archive</div>
+      <div class="m-title" id="m-title">Samarpan Upnishad</div>
       <button class="m-fav" id="m-fav" aria-label="Favorite" hidden>♡</button>
     </header>
     <nav class="m-bottom" id="m-bottom">
@@ -2496,7 +2496,7 @@ const MOBILE_UI = (() => {
     <div class="m-exit" id="m-exit" hidden>
       <div class="m-exit-card">
         <div class="m-exit-ico">🙏</div>
-        <div class="m-exit-q">Do you want to exit Wisdom Archive?</div>
+        <div class="m-exit-q">Do you want to exit Samarpan Upnishad?</div>
         <div class="m-exit-btns">
           <button class="btn" id="m-exit-no">Stay</button>
           <button class="btn primary" id="m-exit-yes">Exit</button>
@@ -2572,7 +2572,7 @@ const MOBILE_UI = (() => {
   function setChrome(mode, title, entry) {
     document.body.classList.toggle("m-viewing", mode === "home" || mode === "viewer");
     $("m-back").style.visibility = mode === "home" ? "hidden" : "visible";
-    $("m-title").textContent = title || "Wisdom Archive";
+    $("m-title").textContent = title || "Samarpan Upnishad";
     const fav = $("m-fav");
     if (entry) {
       fav.hidden = false;
@@ -2596,7 +2596,7 @@ const MOBILE_UI = (() => {
 
   // ---- the viewer (home + #/entry/<id>) ----------------------------------
   async function viewer(id, params, isHome) {
-    setChrome(isHome ? "home" : "viewer", "Wisdom Archive", null);
+    setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", null);
     $view.innerHTML = `<div class="loading">Loading…</div>`;
     const nav = _nav;
     try {
@@ -2631,7 +2631,7 @@ const MOBILE_UI = (() => {
   function renderViewer(e, isHome) {
     _stageId = e.id;
     store.setLastViewed(e.id);
-    setChrome(isHome ? "home" : "viewer", "Wisdom Archive", e);
+    setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", e);
 
     // Start from the language the user last chose (Hindi on a fresh open),
     // falling back when this day lacks that language.
@@ -2950,7 +2950,7 @@ const MOBILE_UI = (() => {
     fallthrough(seg) {
       closeDrawer();
       flipTo = null;
-      setChrome("page", PAGE_TITLES[seg[0]] || "Wisdom Archive", null);
+      setChrome("page", PAGE_TITLES[seg[0]] || "Samarpan Upnishad", null);
     },
   };
 })();
