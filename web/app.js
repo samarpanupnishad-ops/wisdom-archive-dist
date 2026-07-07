@@ -2062,6 +2062,13 @@ async function route() {
   _searchBackFn = null;   // leaving search (even to re-search) drops any open detail view
   updateIdNav(null);
   if (document.getElementById("conc-panel-body")) renderConclusionPanelBody(null);
+  // Mobile app shell (APK / ?waNativeTest=1): image-first pages take over
+  // home / entry / #/m/* routes; every other route falls through to the
+  // standard views below, framed by the mobile top bar.
+  if (MOBILE_UI.active) {
+    if (MOBILE_UI.handles(seg)) return MOBILE_UI.route(seg, params);
+    MOBILE_UI.fallthrough(seg);
+  }
   if (seg[0] === "entry" && seg[1]) { setActiveNav(""); return renderEntry(seg[1]); }
   if (seg[0] === "search") { setActiveNav("search"); return renderSearch(params.get("q") || ""); }
   if (seg[0] === "favorites") { setActiveNav("favorites"); return renderFavorites(); }
@@ -2417,5 +2424,426 @@ initAutohide();
 initCalNav();
 initIdNav();
 initQuickStats();
+// ==========================================================================
+// MOBILE SHELL — image-first UI for the Android app (and ?waNativeTest=1).
+// Inactive on desktop: MOBILE_UI.active is false and nothing below runs.
+//
+// Routes it owns:   #/            latest wisdom, full-screen Hindi image
+//                   #/entry/<id>  same viewer for any wisdom
+//                   #/m/search    search by word / date / wisdom number
+//                   #/m/community full-page community (reuses the chat tab)
+//                   #/m/anushthan, #/m/special   placeholder pages (content later)
+//                   #/m/contact   message to admin (Supabase admin_messages)
+//                   #/m/account   sign in / profile
+// Everything else (favorites, browse, stats, settings, …) falls through to the
+// standard views, framed with the mobile top bar. Hindi/English switches with
+// a book-flip; swipe (or the edge arrows) steps older/newer.
+// ==========================================================================
+const MOBILE_UI = (() => {
+  const active = !!window.WA_NATIVE_ACTIVE;
+  if (!active) return { active, handles: () => false, route: () => {}, fallthrough: () => {} };
+
+  document.body.classList.add("m-mode");
+
+  // ---- chrome (top bar, bottom bar, drawer) — injected once -------------
+  document.body.insertAdjacentHTML("beforeend", `
+    <header class="m-top" id="m-top">
+      <button class="m-back" id="m-back" aria-label="Back">‹</button>
+      <div class="m-title" id="m-title">Wisdom Archive</div>
+      <button class="m-fav" id="m-fav" aria-label="Favorite" hidden>♡</button>
+    </header>
+    <nav class="m-bottom" id="m-bottom">
+      <button class="m-menu-btn" id="m-menu-btn">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        <span>Menu</span>
+      </button>
+      <div class="m-langseg" id="m-langseg" role="group" aria-label="Language">
+        <button data-lang="hi" class="active">हिंदी</button>
+        <button data-lang="en">English</button>
+      </div>
+    </nav>
+    <div class="m-scrim" id="m-scrim" hidden></div>
+    <aside class="m-drawer" id="m-drawer" aria-label="Menu">
+      <a class="m-account" id="m-account-row" href="#/m/account"></a>
+      <nav class="m-menu">
+        <a href="#/m/search"><span class="mi">🔍</span> Search By</a>
+        <a href="#/m/community"><span class="mi">💬</span> Community</a>
+        <a href="#/m/anushthan"><span class="mi">🪔</span> Anushthan Message</a>
+        <a href="#/m/special"><span class="mi">✨</span> Special Message</a>
+        <a href="#/m/contact"><span class="mi">✉️</span> Message to Admin</a>
+        <div class="m-menu-sep">More</div>
+        <a href="#/?latest=1"><span class="mi">🌅</span> Today's Wisdom</a>
+        <a href="#/favorites"><span class="mi">♥</span> Favorites</a>
+        <a href="#/browse/date"><span class="mi">📅</span> Browse by Date</a>
+        <a href="#/random"><span class="mi">🎲</span> Random Wisdom</a>
+        <a href="#/stats"><span class="mi">📊</span> Statistics</a>
+        <a href="#/settings"><span class="mi">⚙️</span> Settings</a>
+        <a href="#/about"><span class="mi">🕉️</span> About</a>
+      </nav>
+    </aside>`);
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---- drawer ------------------------------------------------------------
+  function refreshAccountRow() {
+    const row = $("m-account-row");
+    const u = currentUser();
+    row.innerHTML = isSignedIn()
+      ? `<span class="m-acc-avatar">${escapeHtml((u.username || "?")[0].toUpperCase())}</span>
+         <span class="m-acc-name">${escapeHtml(u.username)}<small>${escapeHtml(u.role)}</small></span>`
+      : `<span class="m-acc-avatar">॥</span>
+         <span class="m-acc-name">Sign in<small>for community features</small></span>`;
+  }
+  function openDrawer() { refreshAccountRow(); $("m-drawer").classList.add("open"); $("m-scrim").hidden = false; }
+  function closeDrawer() {
+    const was = $("m-drawer").classList.contains("open");
+    $("m-drawer").classList.remove("open"); $("m-scrim").hidden = true;
+    return was;
+  }
+  $("m-menu-btn").addEventListener("click", openDrawer);
+  $("m-scrim").addEventListener("click", closeDrawer);
+  $("m-drawer").addEventListener("click", (e) => { if (e.target.closest("a")) closeDrawer(); });
+  $("m-back").addEventListener("click", () => history.back());
+  // Android back button (wa-native.js forwards it here first): close the drawer.
+  window.WA_MOBILE_BACK = () => closeDrawer();
+
+  // ---- chrome state --------------------------------------------------------
+  // mode: "home" (viewer, no back) | "viewer" (back + fav) | "page" (back + title)
+  function setChrome(mode, title, entry) {
+    document.body.classList.toggle("m-viewing", mode === "home" || mode === "viewer");
+    $("m-back").style.visibility = mode === "home" ? "hidden" : "visible";
+    $("m-title").textContent = title || "Wisdom Archive";
+    const fav = $("m-fav");
+    if (entry) {
+      fav.hidden = false;
+      const paint = () => { fav.textContent = store.isFav(entry.id) ? "♥" : "♡"; fav.classList.toggle("on", store.isFav(entry.id)); };
+      paint();
+      fav.onclick = () => { store.toggleFav(entry.id); paint(); };
+    } else { fav.hidden = true; fav.onclick = null; }
+  }
+
+  // ---- language toggle (bottom bar) → flips the current viewer ----------
+  let flipTo = null;   // set by the active viewer
+  function paintLang(lang) {
+    $("m-langseg").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
+  }
+  $("m-langseg").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b || !flipTo) return;
+    flipTo(b.dataset.lang);
+  });
+
+  // ---- the viewer (home + #/entry/<id>) ----------------------------------
+  async function viewer(id, params, isHome) {
+    setChrome(isHome ? "home" : "viewer", "Wisdom Archive", null);
+    $view.innerHTML = `<div class="loading">Loading…</div>`;
+    const nav = _nav;
+    try {
+      if (!id) {
+        const sel = params && params.get("sel");
+        if (sel) { id = sel; }
+        else {
+          const latest = await api("/api/latest?limit=1");
+          if (!latest.results.length) { $view.innerHTML = `<div class="m-page"><div class="empty">No wisdom yet.</div></div>`; return; }
+          id = latest.results[0].id;
+        }
+      }
+      const e = await api("/api/entry/" + encodeURIComponent(id));
+      if (!current(nav)) return;
+      renderViewer(e, isHome);
+    } catch (err) {
+      if (!current(nav)) return;
+      setChrome("page", "Wisdom");
+      $view.innerHTML = `<div class="m-page"><div class="empty">Wisdom #${escapeHtml(String(id || ""))} not found.</div></div>`;
+    }
+  }
+
+  function faceHtml(e, lang) {
+    const url = lang === "hi" ? e.img_hi_url : e.img_en_url;
+    if (url) return `<img src="${url}" alt="" decoding="async">`;
+    const topic = escapeHtml(e.topic_hi || e.topic_en || "");
+    const body = escapeHtml((lang === "hi" ? e.body_hi : e.body_en) || "");
+    if (body) return `<div class="m-textface">${topic ? `<h3>${topic}</h3>` : ""}<p>${body.replace(/\n/g, "<br>")}</p></div>`;
+    return `<div class="m-noimg">🕉️<br>${lang === "hi" ? "Hindi" : "English"} message is not available for this day.</div>`;
+  }
+
+  function renderViewer(e, isHome) {
+    _stageId = e.id;
+    store.setLastViewed(e.id);
+    setChrome(isHome ? "home" : "viewer", "Wisdom Archive", e);
+
+    let lang = e.img_hi_url || e.body_hi ? "hi" : "en";   // Hindi first, always
+    paintLang(lang);
+
+    const v = el(`<div class="m-viewer">
+      <div class="m-vhead">
+        <span class="m-vid">#${e.id}</span>
+        <span class="m-vdate">${fmtDate(e.date)}${e.weekday ? " · " + e.weekday : ""}</span>
+      </div>
+      <div class="m-flip"><div class="m-flip-inner">
+        <div class="m-face m-front">${faceHtml(e, "hi")}</div>
+        <div class="m-face m-back">${faceHtml(e, "en")}</div>
+      </div></div>
+      <div class="m-extras"></div>
+      <button class="m-nav m-nav-older" aria-label="Older" hidden>‹</button>
+      <button class="m-nav m-nav-newer" aria-label="Newer" hidden>›</button>
+    </div>`);
+    $view.replaceChildren(v);
+
+    const flip = v.querySelector(".m-flip");
+    const inner = v.querySelector(".m-flip-inner");
+
+    // Faces are absolutely positioned (3D flip), so the container's height is
+    // driven manually: always the height of the face currently shown.
+    const syncHeight = () => {
+      const face = v.querySelector(lang === "hi" ? ".m-front" : ".m-back");
+      if (face) flip.style.height = face.scrollHeight + "px";
+    };
+    v.querySelectorAll(".m-face img").forEach((im) => im.addEventListener("load", syncHeight));
+    window.addEventListener("resize", syncHeight);
+    setTimeout(syncHeight, 50);
+
+    const extrasBox = v.querySelector(".m-extras");
+    const renderExtras = () => {
+      const pages = (e.extras || []).filter((x) => x.lang === lang);
+      extrasBox.innerHTML = pages.map((x) => `<img src="${x.url}" alt="" loading="lazy" decoding="async">`).join("");
+    };
+    renderExtras();
+
+    flipTo = (l) => {
+      if (l === lang) return;
+      lang = l;
+      paintLang(lang);
+      flip.classList.toggle("flipped", lang === "en");   // the book-flip
+      renderExtras();
+      setTimeout(syncHeight, 80);
+      setTimeout(syncHeight, 720);
+    };
+
+    // Older / newer: swipe anywhere on the viewer, or the edge arrows.
+    api("/api/entry/" + encodeURIComponent(e.id) + "/neighbors").then((n) => {
+      const older = v.querySelector(".m-nav-older"), newer = v.querySelector(".m-nav-newer");
+      if (n.older_id) { older.hidden = false; older.onclick = () => go("#/entry/" + n.older_id); }
+      if (n.newer_id) { newer.hidden = false; newer.onclick = () => go("#/entry/" + n.newer_id); }
+      let sx = 0, sy = 0;
+      v.addEventListener("touchstart", (t) => { sx = t.touches[0].clientX; sy = t.touches[0].clientY; }, { passive: true });
+      v.addEventListener("touchend", (t) => {
+        const dx = t.changedTouches[0].clientX - sx, dy = t.changedTouches[0].clientY - sy;
+        if (Math.abs(dx) < 60 || Math.abs(dy) > 70) return;
+        if (dx < 0 && n.older_id) go("#/entry/" + n.older_id);
+        if (dx > 0 && n.newer_id) go("#/entry/" + n.newer_id);
+      }, { passive: true });
+    }).catch(() => {});
+  }
+
+  // ---- generic page frame --------------------------------------------------
+  function pageFrame(title, node) {
+    flipTo = null;
+    setChrome("page", title, null);
+    const wrap = el(`<div class="m-page"></div>`);
+    wrap.appendChild(node);
+    $view.replaceChildren(wrap);
+  }
+
+  // ---- Search By (word / date / number) -----------------------------------
+  function resultItem(r) {
+    const prev = (r.preview_hi || r.preview_en || r.body_hi || r.body_en || "").slice(0, 90);
+    const it = el(`<a class="m-result" href="#/entry/${r.id}">
+      ${thumbImg(r)}
+      <div class="m-r-meta">
+        <div class="m-r-top">#${r.id} · ${fmtDate(r.date)}</div>
+        <div class="m-r-topic">${escapeHtml(r.topic_hi || r.topic_en || "")}</div>
+        <div class="m-r-prev">${escapeHtml(prev)}</div>
+      </div></a>`);
+    return it;
+  }
+  function showResults(box, rows, emptyMsg) {
+    box.innerHTML = "";
+    if (!rows.length) { box.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
+    rows.forEach((r) => box.appendChild(resultItem(r)));
+  }
+
+  function searchPage(params) {
+    const node = el(`<div>
+      <div class="m-tabs">
+        <button data-t="word" class="active">Word</button>
+        <button data-t="date">Date</button>
+        <button data-t="number">Number</button>
+      </div>
+      <div class="m-tabbody"></div>
+      <div class="m-results"></div>
+    </div>`);
+    pageFrame("Search By", node);
+    const body = node.querySelector(".m-tabbody");
+    const results = node.querySelector(".m-results");
+
+    const tabs = {
+      word() {
+        body.innerHTML = `<div class="m-inputrow">
+          <input type="search" id="m-q" placeholder="Search in English or Hindi…" autocomplete="off">
+          <button class="btn primary" id="m-q-go">Search</button></div>`;
+        const q = body.querySelector("#m-q");
+        const run = async () => {
+          if (!q.value.trim()) return;
+          results.innerHTML = `<div class="loading">Searching…</div>`;
+          try {
+            const d = await api("/api/search?q=" + encodeURIComponent(q.value.trim()));
+            results.innerHTML = `<div class="m-count">${d.count} wisdom entr${d.count === 1 ? "y" : "ies"} found</div>`;
+            const list = el(`<div></div>`); results.appendChild(list);
+            showResults(list, d.results, "");
+          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+        };
+        body.querySelector("#m-q-go").addEventListener("click", run);
+        q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); run(); } });
+        q.focus();
+      },
+      date() {
+        body.innerHTML = `<div class="m-inputrow"><input type="date" id="m-d"></div>
+          <div class="m-hint">Pick a day to see its wisdom.</div>`;
+        body.querySelector("#m-d").addEventListener("change", async (ev) => {
+          const iso = ev.target.value; if (!iso) return;
+          results.innerHTML = `<div class="loading">Loading…</div>`;
+          try {
+            const d = await api("/api/browse?date=" + encodeURIComponent(iso));
+            if (d.results.length === 1) { go("#/entry/" + d.results[0].id); return; }
+            showResults(results, d.results, "Guru's message was not shared on this day.");
+          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+        });
+      },
+      number() {
+        body.innerHTML = `<div class="m-inputrow">
+          <input type="text" id="m-n" inputmode="numeric" placeholder="Wisdom number, e.g. 3446">
+          <button class="btn primary" id="m-n-go">Open</button></div>`;
+        const n = body.querySelector("#m-n");
+        const goN = () => { const v = n.value.trim(); if (v) go("#/entry/" + encodeURIComponent(v)); };
+        body.querySelector("#m-n-go").addEventListener("click", goN);
+        n.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); goN(); } });
+        n.focus();
+      },
+    };
+    node.querySelector(".m-tabs").addEventListener("click", (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      node.querySelectorAll(".m-tabs button").forEach((x) => x.classList.toggle("active", x === b));
+      results.innerHTML = "";
+      tabs[b.dataset.t]();
+    });
+    tabs.word();
+  }
+
+  // ---- Community (full page, reuses the community tab renderer) -----------
+  function communityPage() {
+    const body = el(`<div class="m-community"></div>`);
+    pageFrame("Community", body);
+    renderCommunityTab(body);
+  }
+
+  // ---- placeholders (content arrives later) -------------------------------
+  function placeholderPage(title, hindi) {
+    const node = el(`<div class="m-holder">
+      <div class="m-holder-ico">🕉️</div>
+      <h2>${escapeHtml(title)}</h2>
+      <p class="m-holder-hi">${escapeHtml(hindi)}</p>
+      <p>This page is ready — its messages will appear here soon.</p>
+    </div>`);
+    pageFrame(title, node);
+  }
+
+  // ---- Message to Admin ----------------------------------------------------
+  async function contactPage() {
+    const node = el(`<div class="m-contact"></div>`);
+    pageFrame("Message to Admin", node);
+    if (!isSignedIn()) {
+      node.innerHTML = `<p class="m-hint" style="margin-bottom:14px">Sign in to send a message to the admin.</p>` + modSignInHtml();
+      wireModSignIn(node, () => contactPage());
+      return;
+    }
+    node.innerHTML = `
+      <div class="m-inputcol">
+        <textarea id="m-msg" rows="4" maxlength="2000" placeholder="Write your message to the admin…"></textarea>
+        <button class="btn primary" id="m-msg-send">Send</button>
+      </div>
+      <div class="m-msglist" id="m-msg-mine"><div class="loading">Loading…</div></div>
+      <div id="m-msg-mod"></div>`;
+    const send = node.querySelector("#m-msg-send");
+    send.addEventListener("click", async () => {
+      const ta = node.querySelector("#m-msg");
+      if (!ta.value.trim()) return;
+      send.disabled = true; send.textContent = "Sending…";
+      try { await WA.sendAdminMessage(ta.value); ta.value = ""; toast("Message sent 🙏"); loadMine(); }
+      catch (err) { toast(err.message); }
+      finally { send.disabled = false; send.textContent = "Send"; }
+    });
+    const mine = node.querySelector("#m-msg-mine");
+    async function loadMine() {
+      try {
+        const d = await WA.myAdminMessages();
+        mine.innerHTML = d.messages.length ? `<div class="m-count">Your messages</div>` : "";
+        d.messages.forEach((m) => mine.appendChild(el(
+          `<div class="m-msgitem"><div class="m-msgtext">${escapeHtml(m.text)}</div><div class="m-msgts">${timeAgo(m.ts)}</div></div>`)));
+      } catch (err) { mine.innerHTML = `<div class="m-hint">${escapeHtml(err.message)}</div>`; }
+    }
+    loadMine();
+    if (isModerator()) {
+      const box = node.querySelector("#m-msg-mod");
+      try {
+        const d = await WA.listAdminMessages();
+        box.innerHTML = `<div class="m-count">Received messages (${d.messages.length})</div>`;
+        d.messages.forEach((m) => box.appendChild(el(
+          `<div class="m-msgitem"><div class="m-msgfrom">${escapeHtml(m.user || "?")}</div><div class="m-msgtext">${escapeHtml(m.text)}</div><div class="m-msgts">${timeAgo(m.ts)}</div></div>`)));
+      } catch { /* table not set up yet — the sender box already explains */ }
+    }
+  }
+
+  // ---- Account -------------------------------------------------------------
+  function accountPage() {
+    const node = el(`<div class="m-contact"></div>`);
+    pageFrame("Account", node);
+    if (isSignedIn()) {
+      const u = currentUser();
+      node.innerHTML = `<div class="m-acc-card">
+          <span class="m-acc-avatar big">${escapeHtml((u.username || "?")[0].toUpperCase())}</span>
+          <div class="m-acc-name">${escapeHtml(u.username)}<small>${escapeHtml(u.role)}</small></div>
+        </div>
+        <button class="btn" id="m-signout">Sign out</button>`;
+      node.querySelector("#m-signout").addEventListener("click", async () => {
+        try { await WA.logout(); } catch {}
+        store.setToken(""); localStorage.removeItem("wa:user");
+        refreshModNav(); toast("Signed out"); accountPage();
+      });
+      return;
+    }
+    node.innerHTML = modSignInHtml();
+    wireModSignIn(node, () => { refreshModNav(); accountPage(); });
+  }
+
+  // ---- router --------------------------------------------------------------
+  const PAGE_TITLES = { favorites: "Favorites", browse: "Browse by Date", random: "Random Wisdom",
+    stats: "Statistics", settings: "Settings", about: "About", help: "Help & Support",
+    moderator: "Moderator", admin: "Add Wisdom", search: "Search" };
+
+  return {
+    active,
+    handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m"; },
+    async route(seg, params) {
+      closeDrawer();
+      closeChatStream();
+      if (!seg.length) return viewer(null, params, true);
+      if (seg[0] === "entry") return viewer(seg[1], null, false);
+      const p = seg[1];
+      if (p === "search") return searchPage(params);
+      if (p === "community") return communityPage();
+      if (p === "anushthan") return placeholderPage("Anushthan Message", "अनुष्ठान संदेश");
+      if (p === "special") return placeholderPage("Special Message", "विशेष संदेश");
+      if (p === "contact") return contactPage();
+      if (p === "account") return accountPage();
+      return viewer(null, params, true);
+    },
+    fallthrough(seg) {
+      closeDrawer();
+      flipTo = null;
+      setChrome("page", PAGE_TITLES[seg[0]] || "Wisdom Archive", null);
+    },
+  };
+})();
+
 window.addEventListener("hashchange", safeRoute);
 safeRoute();

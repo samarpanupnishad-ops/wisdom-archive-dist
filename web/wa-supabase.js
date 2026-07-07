@@ -43,6 +43,14 @@ function _mapMsg(row) {
   return { id: row.id, user: row.username, text: row.text, ts: row.created_at };
 }
 
+// Friendly text when the admin_messages table hasn't been created yet (the
+// schema addition must be run once in the Supabase dashboard).
+function _tableMissing(error) {
+  return /admin_messages.*(does not exist|not find|schema cache)/i.test(error.message || "")
+    ? "The message box isn't set up yet. (Admin: run the admin_messages section of supabase/schema.sql.)"
+    : null;
+}
+
 async function _loadProfile(uid) {
   const { data, error } = await _sb.from("profiles").select("*").eq("id", uid).single();
   if (error) throw new Error(error.message);
@@ -166,6 +174,37 @@ const WA = {
       .order("created_at", { ascending: false }).limit(n);
     if (error || !data) return { messages: [] };
     return { messages: data.map((r) => ({ user: r.username, wid: r.wisdom_id, text: r.text, ts: r.created_at })) };
+  },
+
+  // ----- Message to admin (mobile "Message to Admin" page) ---------------
+  // Table: admin_messages (see supabase/schema.sql). Signed-in users write;
+  // they see their own messages, moderators/parmatma see everyone's.
+  async sendAdminMessage(text) {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) throw Object.assign(new Error("Please sign in first."), { code: "AUTH" });
+    const body = (text || "").trim();
+    if (!body) throw new Error("Please write a message.");
+    if (body.length > 2000) throw new Error("Message is too long (max 2000 characters).");
+    const { data, error } = await _sb.from("admin_messages")
+      .insert({ text: body }).select("*").single();
+    if (error) throw new Error(_tableMissing(error) || error.message);
+    return { id: data.id, text: data.text, ts: data.created_at };
+  },
+  async myAdminMessages() {
+    const { data: { session } } = await _sb.auth.getSession();
+    if (!session) return { messages: [] };
+    const { data, error } = await _sb.from("admin_messages").select("*")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false }).limit(50);
+    if (error) throw new Error(_tableMissing(error) || error.message);
+    return { messages: (data || []).map((r) => ({ id: r.id, text: r.text, ts: r.created_at })) };
+  },
+  // Moderators/parmatma: every user's messages, newest first.
+  async listAdminMessages() {
+    const { data, error } = await _sb.from("admin_messages").select("*")
+      .order("created_at", { ascending: false }).limit(200);
+    if (error) throw new Error(_tableMissing(error) || error.message);
+    return { messages: (data || []).map((r) => ({ id: r.id, user: r.username, text: r.text, ts: r.created_at })) };
   },
 
   // ----- Moderator ------------------------------------------------------
