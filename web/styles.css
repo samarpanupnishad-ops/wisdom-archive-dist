@@ -1253,3 +1253,22 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 /* Fall-through desktop views inside the mobile frame: keep grids narrow. */
 body.m-mode .cards, body.m-mode .card-grid { grid-template-columns: 1fr 1fr; }
 body.m-mode .page-head { padding-top: 4px; }
+
+/* ---- exit confirmation sheet (Android back on the home screen) ---- */
+.m-exit {
+  position: fixed; inset: 0; z-index: 800;
+  background: rgba(20, 14, 30, .45);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.m-exit-card {
+  width: 100%; max-width: 480px;
+  background: var(--surface); border-radius: 18px 18px 0 0;
+  padding: 22px 20px calc(20px + env(safe-area-inset-bottom));
+  text-align: center; animation: mslideup .22s ease;
+  box-shadow: 0 -8px 32px rgba(40, 30, 60, .25);
+}
+@keyframes mslideup { from { transform: translateY(40%); opacity: .4; } }
+.m-exit-ico { font-size: 34px; margin-bottom: 8px; }
+.m-exit-q { font: 600 16px var(--sans); color: var(--text); margin-bottom: 18px; }
+.m-exit-btns { display: flex; gap: 10px; }
+.m-exit-btns .btn { flex: 1; padding: 12px 0; border-radius: 12px; font-size: 15px; }

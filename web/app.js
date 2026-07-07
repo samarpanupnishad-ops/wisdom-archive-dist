@@ -2480,7 +2480,17 @@ const MOBILE_UI = (() => {
         <a href="#/settings"><span class="mi">⚙️</span> Settings</a>
         <a href="#/about"><span class="mi">🕉️</span> About</a>
       </nav>
-    </aside>`);
+    </aside>
+    <div class="m-exit" id="m-exit" hidden>
+      <div class="m-exit-card">
+        <div class="m-exit-ico">🙏</div>
+        <div class="m-exit-q">Do you want to exit Wisdom Archive?</div>
+        <div class="m-exit-btns">
+          <button class="btn" id="m-exit-no">Stay</button>
+          <button class="btn primary" id="m-exit-yes">Exit</button>
+        </div>
+      </div>
+    </div>`);
 
   const $ = (id) => document.getElementById(id);
 
@@ -2504,8 +2514,31 @@ const MOBILE_UI = (() => {
   $("m-scrim").addEventListener("click", closeDrawer);
   $("m-drawer").addEventListener("click", (e) => { if (e.target.closest("a")) closeDrawer(); });
   $("m-back").addEventListener("click", () => history.back());
-  // Android back button (wa-native.js forwards it here first): close the drawer.
-  window.WA_MOBILE_BACK = () => closeDrawer();
+
+  // ---- Android BACK + exit confirmation -----------------------------------
+  // Registered here (not in wa-native.js) so the behaviour ships over-the-air.
+  // Order: close an open overlay → walk history → on home, ask before exiting.
+  function showExitSheet() { $("m-exit").hidden = false; }
+  function hideExitSheet() { const was = !$("m-exit").hidden; $("m-exit").hidden = true; return was; }
+  $("m-exit-no").addEventListener("click", hideExitSheet);
+  $("m-exit").addEventListener("click", (e) => { if (e.target === $("m-exit")) hideExitSheet(); });
+  $("m-exit-yes").addEventListener("click", () => {
+    const app = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (app && app.exitApp) app.exitApp(); else hideExitSheet();   // browser test mode
+  });
+  function onHardwareBack() {
+    if (hideExitSheet()) return;
+    if (closeDrawer()) return;
+    const atHome = !location.hash || /^#\/?(\?.*)?$/.test(location.hash);
+    if (atHome) { showExitSheet(); return; }
+    const before = location.hash;
+    history.back();
+    // Deep-launched with no history to walk? Land on home instead of nowhere.
+    setTimeout(() => { if (location.hash === before) location.hash = "#/"; }, 300);
+  }
+  window.WA_MOBILE_BACK = () => { onHardwareBack(); return true; };   // also serves older wa-native.js builds
+  const _capApp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+  if (_capApp && _capApp.addListener) _capApp.addListener("backButton", onHardwareBack);
 
   // ---- chrome state --------------------------------------------------------
   // mode: "home" (viewer, no back) | "viewer" (back + fav) | "page" (back + title)
