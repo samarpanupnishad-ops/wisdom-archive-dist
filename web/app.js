@@ -2707,6 +2707,13 @@ const MOBILE_UI = (() => {
   let prefLang = "hi";   // Hindi on every app open; the user's flip choice then
                          // sticks while scrolling through days this session
   let _feedCards = [];   // controllers for the currently mounted slides
+  // Set right before navigating from a curated list (Favorites, Word search)
+  // into one of its items: confines the vertical feed to that list instead of
+  // the whole chronological archive. Self-correcting — buildFeed() only
+  // honours it while the entry actually being viewed is still in the list,
+  // so a later unrelated navigation harmlessly falls back to normal browsing.
+  let _activeList = null;   // { ids: [...], index: N } | null
+  function setActiveList(ids, index) { _activeList = { ids: ids.slice(), index }; }
   function paintLang(lang) {
     $("m-langseg").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
   }
@@ -2929,11 +2936,9 @@ const MOBILE_UI = (() => {
     return { root, setLang, entry: e };
   }
 
-  function feedSlideEl(ctl, kind) {
+  function feedSlideEl(ctl, kind, endMsg) {
     const slide = el(`<div class="m-feedslide" data-kind="${kind}"></div>`);
-    slide.appendChild(ctl ? ctl.root : el(`<div class="m-feedend">🕉️<br>${
-      kind === "older" ? "You've reached the earliest Guru's msg." : "You've reached the latest Guru's msg."
-    }</div>`));
+    slide.appendChild(ctl ? ctl.root : el(`<div class="m-feedend">🕉️<br>${endMsg || ""}</div>`));
     return slide;
   }
 
@@ -2952,11 +2957,26 @@ const MOBILE_UI = (() => {
     // no matter how many older/newer entries the user has scrolled through.
     if (!isHome) history.replaceState(null, "", "#/entry/" + centerEntry.id);
 
-    let neighbors = {};
-    try { neighbors = await api("/api/entry/" + encodeURIComponent(centerEntry.id) + "/neighbors"); } catch {}
+    // Browsing a curated list (Favorites, Word search results)? Scroll within
+    // just that list, in the order it was shown — not the whole chronological
+    // archive. Self-correcting: only applies while the current id is still
+    // actually in the list, so it can't leak into unrelated navigation.
+    const listMode = _activeList && _activeList.ids.includes(centerEntry.id) ? _activeList : null;
+    let olderId = null, newerId = null;
+    if (listMode) {
+      const idx = listMode.ids.indexOf(centerEntry.id);
+      listMode.index = idx;
+      olderId = idx > 0 ? listMode.ids[idx - 1] : null;
+      newerId = idx < listMode.ids.length - 1 ? listMode.ids[idx + 1] : null;
+    } else {
+      try {
+        const n = await api("/api/entry/" + encodeURIComponent(centerEntry.id) + "/neighbors");
+        olderId = n.older_id; newerId = n.newer_id;
+      } catch {}
+    }
     const [olderE, newerE] = await Promise.all([
-      neighbors.older_id ? api("/api/entry/" + encodeURIComponent(neighbors.older_id)).catch(() => null) : Promise.resolve(null),
-      neighbors.newer_id ? api("/api/entry/" + encodeURIComponent(neighbors.newer_id)).catch(() => null) : Promise.resolve(null),
+      olderId ? api("/api/entry/" + encodeURIComponent(olderId)).catch(() => null) : Promise.resolve(null),
+      newerId ? api("/api/entry/" + encodeURIComponent(newerId)).catch(() => null) : Promise.resolve(null),
     ]);
     if (_stageId !== centerEntry.id) return;   // superseded by a newer navigation mid-fetch
 
@@ -2966,10 +2986,13 @@ const MOBILE_UI = (() => {
     const nCtl = newerE ? buildViewerCard(newerE) : null;
     _feedCards = [oCtl, cCtl, nCtl];
 
+    const endMsg = listMode
+      ? { older: "You've reached the beginning of this list.", newer: "You've reached the end of this list." }
+      : { older: "You've reached the earliest Guru's msg.", newer: "You've reached the latest Guru's msg." };
     const feed = el(`<div class="m-feed"></div>`);
-    feed.appendChild(feedSlideEl(oCtl, "older"));
+    feed.appendChild(feedSlideEl(oCtl, "older", endMsg.older));
     feed.appendChild(feedSlideEl(cCtl, "current"));
-    feed.appendChild(feedSlideEl(nCtl, "newer"));
+    feed.appendChild(feedSlideEl(nCtl, "newer", endMsg.newer));
     $view.replaceChildren(feed);
     feed.scrollTop = feed.clientHeight;   // land on the middle slide, no animation
     // Belt-and-braces re-center once the async image loads (which resize the
@@ -3002,21 +3025,32 @@ const MOBILE_UI = (() => {
   }
 
   // ---- Search By (word / date / number) -----------------------------------
-  function resultItem(r, hrefFor) {
+  // listCtx (optional): { ids: [...], index: N } — when set, opening this
+  // result makes the vertical feed scroll through just THIS list (in the
+  // order it's shown), not the whole chronological archive.
+  function resultItem(r, hrefFor, listCtx) {
     const prev = (r.preview_hi || r.preview_en || r.body_hi || r.body_en || "").slice(0, 90);
-    const it = el(`<a class="m-result" href="${hrefFor(r.id)}">
+    const href = hrefFor(r.id);
+    const it = el(`<a class="m-result" href="${href}">
       ${thumbImg(r)}
       <div class="m-r-meta">
         <div class="m-r-top">#${r.id} · ${fmtDate(r.date)}</div>
         <div class="m-r-topic">${escapeHtml(r.topic_hi || r.topic_en || "")}</div>
         <div class="m-r-prev">${escapeHtml(prev)}</div>
       </div></a>`);
+    if (listCtx && href.startsWith("#/entry/")) {
+      it.addEventListener("click", () => setActiveList(listCtx.ids, listCtx.index));
+    }
     return it;
   }
-  function showResults(box, rows, emptyMsg, hrefFor) {
+  // scoped=true: opening any row here confines vertical scrolling to this
+  // exact list (Favorites, Word search). Leave false/omitted for contexts
+  // where scoping wouldn't make sense (e.g. picking a Guru's msg for chat).
+  function showResults(box, rows, emptyMsg, hrefFor, scoped) {
     box.innerHTML = "";
     if (!rows.length) { box.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
-    rows.forEach((r) => box.appendChild(resultItem(r, hrefFor)));
+    const ids = scoped ? rows.map((r) => r.id) : null;
+    rows.forEach((r, i) => box.appendChild(resultItem(r, hrefFor, scoped ? { ids, index: i } : null)));
   }
 
   // Restored when returning from a result's detail page (item 1); cleared the
@@ -3027,7 +3061,7 @@ const MOBILE_UI = (() => {
     return { tab: "word", word: "", wordResultsHtml: "", dateStep: "years", dateYear: null, dateYm: null, numberValue: "" };
   }
   const _searchState = { plain: freshSearchState(), chat: freshSearchState() };
-  function resetSearchState() { _searchState.plain = freshSearchState(); _searchState.chat = freshSearchState(); }
+  function resetSearchState() { _searchState.plain = freshSearchState(); _searchState.chat = freshSearchState(); _activeList = null; }
 
   function searchPage(params) {
     // for=chat → picking a Guru's msg for the community chat: results open the
@@ -3067,7 +3101,7 @@ const MOBILE_UI = (() => {
             if (mySeq !== seq) return;   // a newer keystroke's search already ran
             results.innerHTML = `<div class="m-count">${d.count} Guru's msg${d.count === 1 ? "" : "s"} found</div>`;
             const list = el(`<div></div>`); results.appendChild(list);
-            showResults(list, d.results, "", hrefFor);
+            showResults(list, d.results, "", hrefFor, !forChat);
             st.wordResultsHtml = results.innerHTML;
           } catch (err) { if (mySeq === seq) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; st.wordResultsHtml = results.innerHTML; } }
         };
@@ -3134,7 +3168,9 @@ const MOBILE_UI = (() => {
             for (let day = 1; day <= totalDays; day++) {
               const id = byDay[day];
               const cell = el(`<button class="m-cal-cell${id ? " has-msg" : ""}"${id ? "" : " disabled"}>${day}</button>`);
-              if (id) cell.addEventListener("click", () => go(hrefFor(id)));
+              // Picking a date shows just that one message — no scrolling to
+              // other days, same as Lucky Msg / Number lookup.
+              if (id) cell.addEventListener("click", () => go(forChat ? hrefFor(id) : "#/entry/" + id + "?single=1"));
               grid.appendChild(cell);
             }
             results.replaceChildren(cal);
@@ -3221,7 +3257,7 @@ const MOBILE_UI = (() => {
     results.innerHTML = `<div class="loading">Loading…</div>`;
     const ids = store.favs();
     const entries = (await Promise.all(ids.map((id) => api("/api/entry/" + id).catch(() => null)))).filter(Boolean);
-    showResults(results, entries, "No favorites yet. Open a Guru's msg and tap ♡ to add it here.", (id) => "#/entry/" + id);
+    showResults(results, entries, "No favorites yet. Open a Guru's msg and tap ♡ to add it here.", (id) => "#/entry/" + id, true);
   }
 
   // ---- placeholders (content arrives later) -------------------------------
