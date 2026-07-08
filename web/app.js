@@ -2718,7 +2718,7 @@ const MOBILE_UI = (() => {
     applyLangToFeed(b.dataset.lang, true);
   });
 
-  // ---- tick sound (scrolling to the previous/older day) -------------------
+  // ---- tick sound (scrolling to another day, older or newer) --------------
   // Synthesised — no audio asset to bundle or download. Settings toggle,
   // default ON.
   let _tickCtx = null;
@@ -2918,7 +2918,7 @@ const MOBILE_UI = (() => {
       const idx = Math.round(feed.scrollTop / h);
       if (idx === 1) return;   // still centered — nothing to do
       if (idx <= 0 && olderE) { _feedSettling = true; playTick(); buildFeed(olderE, isHome); }
-      else if (idx >= 2 && newerE) { _feedSettling = true; buildFeed(newerE, isHome); }
+      else if (idx >= 2 && newerE) { _feedSettling = true; playTick(); buildFeed(newerE, isHome); }
       else { feed.scrollTop = h; }   // no entry that direction — snap back to center
     };
     let settleTimer = null;
@@ -3245,7 +3245,7 @@ const MOBILE_UI = (() => {
           <span class="m-switch"><input type="checkbox" id="m-zb-side"><i></i></span></label>
         <label class="m-switchrow">Home button on left side
           <span class="m-switch"><input type="checkbox" id="m-home-side"><i></i></span></label>
-        <label class="m-switchrow">Tick sound when scrolling to a previous day
+        <label class="m-switchrow">Tick sound when scrolling to another day
           <span class="m-switch"><input type="checkbox" id="m-tick-sound"><i></i></span></label>
         <div class="m-hint">Double-tap a Guru's msg image to open zoom. Off = right side (default).</div>
       </div>`);
