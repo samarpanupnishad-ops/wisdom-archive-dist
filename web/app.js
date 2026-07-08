@@ -154,7 +154,7 @@ const NAV = [
   { route: "search", label: "Search", hash: "#/search", icon: "search" },
   { route: "favorites", label: "Favorites", hash: "#/favorites", icon: "heart" },
   { route: "browse-date", label: "Browse by Date", hash: "#/browse/date", icon: "calendar" },
-  { route: "random", label: "Guru's Unique Msg", hash: "#/random", icon: "shuffle" },
+  { route: "random", label: "Your Lucky Msg for Today", hash: "#/random", icon: "shuffle" },
   { divider: true },
   { route: "admin", label: "Add Guru's Msg", hash: "#/admin", icon: "upload" },
   { route: "moderator", label: "Moderator", hash: "#/moderator", icon: "shield", modOnly: true },
@@ -1527,7 +1527,29 @@ async function renderBrowse(mode, params) {
   $view.replaceChildren(wrap);
 }
 
-async function renderRandom() { const nav = _nav; try { const e = await api("/api/random"); if (!current(nav)) return; go("#/entry/" + e.id); } catch { if (current(nav)) $view.innerHTML = `<div class="empty">No Guru's msg available.</div>`; } }
+// "Your Lucky Msg for Today": one random pick per device per DAY, not per
+// click — the first visit of the day draws it, every later visit returns to
+// the same msg until midnight.
+async function renderRandom() {
+  const nav = _nav;
+  try {
+    const t = new Date();
+    const dayKey = `${t.getFullYear()}-${t.getMonth() + 1}-${t.getDate()}`;
+    let id = null;
+    try { if (localStorage.getItem("wa:luckyDate") === dayKey) id = localStorage.getItem("wa:luckyId"); } catch {}
+    if (id) {
+      // The stored pick can vanish after a content update — fall back to a fresh draw.
+      try { await api("/api/entry/" + encodeURIComponent(id)); } catch { id = null; }
+    }
+    if (!id) {
+      const e = await api("/api/random");
+      id = e.id;
+      try { localStorage.setItem("wa:luckyDate", dayKey); localStorage.setItem("wa:luckyId", String(id)); } catch {}
+    }
+    if (!current(nav)) return;
+    go("#/entry/" + id);
+  } catch { if (current(nav)) $view.innerHTML = `<div class="empty">No Guru's msg available.</div>`; }
+}
 
 async function renderStats() {
   const nav = _nav;
@@ -2481,7 +2503,9 @@ const MOBILE_UI = (() => {
           <a href="#/m/anushthan"><span class="mi">🪔</span> Anushthan Msg</a>
           <a href="#/m/special"><span class="mi">✨</span> Special Msg</a>
         </div>
-        <a href="#/random"><span class="mi">🎲</span> Guru's Unique Msg</a>
+        <a href="#/random" class="m-lucky"><span class="mi m-lucky-ico">🌟</span>
+          <span class="m-lucky-text">Your Lucky Msg for Today</span>
+          <span class="m-lucky-spark s1">✨</span><span class="m-lucky-spark s2">✨</span><span class="m-lucky-spark s3">⭐</span></a>
         <button class="m-menu-group" data-group="more"><span class="mi">➕</span> More <span class="m-caret">▾</span></button>
         <div class="m-submenu" data-sub="more" hidden>
           <a href="#/?latest=1"><span class="mi">🌅</span> Today's Guru's Msg</a>
@@ -3035,7 +3059,7 @@ const MOBILE_UI = (() => {
   }
 
   // ---- router --------------------------------------------------------------
-  const PAGE_TITLES = { favorites: "Favorites", browse: "Browse by Date", random: "Guru's Unique Msg",
+  const PAGE_TITLES = { favorites: "Favorites", browse: "Browse by Date", random: "Your Lucky Msg for Today",
     stats: "Statistics", settings: "Settings", about: "About", help: "Help & Support",
     moderator: "Moderator", admin: "Add Guru's Msg", search: "Search" };
 

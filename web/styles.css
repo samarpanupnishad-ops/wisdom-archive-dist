@@ -1381,3 +1381,41 @@ body.m-mode.m-zoom .m-home-fab { display: none !important; }
 }
 .m-switch input:checked + i { background: var(--accent); }
 .m-switch input:checked + i::before { transform: translateX(20px); }
+
+/* ---- "Your Lucky Msg for Today" — dancing, sparkling menu item ---- */
+@keyframes mluckydance {
+  0%, 100% { transform: rotate(-2deg) translateY(0); }
+  25% { transform: rotate(2deg) translateY(-1.5px); }
+  50% { transform: rotate(-2deg) translateY(.5px); }
+  75% { transform: rotate(2deg) translateY(-1px); }
+}
+@keyframes mluckyshimmer { to { background-position: 200% 50%; } }
+@keyframes mluckytwinkle {
+  0%, 100% { opacity: 0; transform: scale(.4) rotate(0); }
+  50% { opacity: 1; transform: scale(1.15) rotate(28deg); }
+}
+@keyframes mluckyswing { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+
+.m-lucky { position: relative; }
+.m-lucky-ico { animation: mluckyswing 1.4s ease-in-out infinite; }
+.m-lucky-text, #nav a[data-route="random"] .label {
+  display: inline-block; font-weight: 700;
+  background: linear-gradient(90deg, var(--accent), #f0a93c, #c14f16, #f0a93c, var(--accent));
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: mluckydance 1.8s ease-in-out infinite, mluckyshimmer 2.6s linear infinite;
+}
+.m-lucky-spark { position: absolute; pointer-events: none; opacity: 0; font-size: 11px; }
+.m-lucky-spark.s1 { right: 26px; top: 5px; animation: mluckytwinkle 1.9s ease-in-out infinite; }
+.m-lucky-spark.s2 { right: 46px; bottom: 4px; animation: mluckytwinkle 1.9s ease-in-out .63s infinite; }
+.m-lucky-spark.s3 { right: 12px; top: 40%; font-size: 9px; animation: mluckytwinkle 1.9s ease-in-out 1.27s infinite; }
+#nav a[data-route="random"] .label::after {
+  content: " ✨"; font-size: 12px; -webkit-text-fill-color: initial;
+  display: inline-block; animation: mluckytwinkle 1.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-lucky-ico, .m-lucky-text, .m-lucky-spark,
+  #nav a[data-route="random"] .label, #nav a[data-route="random"] .label::after {
+    animation: none !important; opacity: 1;
+  }
+}
