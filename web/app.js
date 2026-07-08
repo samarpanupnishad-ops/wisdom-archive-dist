@@ -2578,20 +2578,12 @@ const MOBILE_UI = (() => {
     const app = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
     if (app && app.exitApp) app.exitApp(); else hideExitSheet();   // browser test mode
   });
-  let _lastBackAt = 0;
   function onHardwareBack() {
     if (hideExitSheet()) return;
     if (exitZoom()) return;
     if (closeDrawer()) return;
     const atHome = !location.hash || /^#\/?(\?.*)?$/.test(location.hash);
-    if (atHome) {
-      // Standard double-back-to-exit: first press hints, a second press within
-      // 2.5 s brings up the Exit/Stay popup.
-      const now = Date.now();
-      if (now - _lastBackAt < 2500) { _lastBackAt = 0; showExitSheet(); }
-      else { _lastBackAt = now; if (typeof toast === "function") toast("Press back again to exit"); }
-      return;
-    }
+    if (atHome) { showExitSheet(); return; }
     const before = location.hash;
     history.back();
     // Deep-launched with no history to walk? Land on home instead of nowhere.
@@ -2709,17 +2701,45 @@ const MOBILE_UI = (() => {
     wireDoubleTap(view, exitZoom);
   }
 
-  // ---- language toggle (bottom bar) → flips the current viewer ----------
-  let flipTo = null;     // set by the active viewer
+  // ---- language toggle (bottom bar) → flips every mounted feed card -----
   let prefLang = "hi";   // Hindi on every app open; the user's flip choice then
-                         // sticks while stepping older/newer within this session
+                         // sticks while scrolling through days this session
+  let _feedCards = [];   // controllers for the currently mounted slides
   function paintLang(lang) {
     $("m-langseg").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
   }
+  function applyLangToFeed(l, animate) {
+    prefLang = l;
+    paintLang(l);
+    _feedCards.forEach((c) => c && c.setLang(l, animate));
+  }
   $("m-langseg").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b || !flipTo) return;
-    flipTo(b.dataset.lang);
+    const b = e.target.closest("button"); if (!b) return;
+    applyLangToFeed(b.dataset.lang, true);
   });
+
+  // ---- tick sound (scrolling to the previous/older day) -------------------
+  // Synthesised — no audio asset to bundle or download. Settings toggle,
+  // default ON.
+  let _tickCtx = null;
+  function tickEnabled() { return pref("wa:mobile:tickSound", "1") === "1"; }
+  function playTick() {
+    if (!tickEnabled()) return;
+    try {
+      _tickCtx = _tickCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (_tickCtx.state === "suspended") _tickCtx.resume();
+      const t0 = _tickCtx.currentTime;
+      const osc = _tickCtx.createOscillator();
+      const gain = _tickCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(920, t0);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.16, t0 + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
+      osc.connect(gain); gain.connect(_tickCtx.destination);
+      osc.start(t0); osc.stop(t0 + 0.12);
+    } catch {}
+  }
 
   // ---- the viewer (home + #/entry/<id>) ----------------------------------
   async function viewer(id, params, isHome) {
@@ -2732,13 +2752,13 @@ const MOBILE_UI = (() => {
         if (sel) { id = sel; }
         else {
           const latest = await api("/api/latest?limit=1");
-          if (!latest.results.length) { $view.innerHTML = `<div class="m-page"><div class="empty">No wisdom yet.</div></div>`; return; }
+          if (!latest.results.length) { $view.innerHTML = `<div class="m-page"><div class="empty">No Guru's msg yet.</div></div>`; return; }
           id = latest.results[0].id;
         }
       }
       const e = await api("/api/entry/" + encodeURIComponent(id));
       if (!current(nav)) return;
-      renderViewer(e, isHome);
+      await buildFeed(e, isHome);
     } catch (err) {
       if (!current(nav)) return;
       setChrome("page", "Guru's msg");
@@ -2755,22 +2775,23 @@ const MOBILE_UI = (() => {
     return `<div class="m-noimg">🕉️<br>${lang === "hi" ? "Hindi" : "English"} message is not available for this day.</div>`;
   }
 
-  function renderViewer(e, isHome) {
-    _stageId = e.id;
-    store.setLastViewed(e.id);
-    setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", e);
-
-    // Start from the language the user last chose (Hindi on a fresh open),
-    // falling back when this day lacks that language.
+  // One reading card: header (date/day left in accent + share/download/copy
+  // right, acting on whichever language is currently showing) + the flip
+  // image + extra pages. Returned as a controller so the language toggle can
+  // update every mounted card (older/current/newer) at once.
+  function buildViewerCard(e) {
     let lang = prefLang;
     if (lang === "hi" && !(e.img_hi_url || e.body_hi)) lang = "en";
     if (lang === "en" && !(e.img_en_url || e.body_en)) lang = "hi";
-    paintLang(lang);
 
-    const v = el(`<div class="m-viewer">
+    const root = el(`<div class="m-viewer">
       <div class="m-vhead">
-        <span class="m-vid">#${e.id}</span>
         <span class="m-vdate">${fmtDate(e.date)}${e.weekday ? " · " + e.weekday : ""}</span>
+        <div class="m-vacts">
+          <button class="m-vact m-vact-share" title="Share" aria-label="Share">${SHARE_ICON}</button>
+          <a class="m-vact m-vact-dl" title="Download image" aria-label="Download image">${DOWNLOAD_ICON}</a>
+          <button class="m-vact m-vact-copy" title="Copy image" aria-label="Copy image">${COPY_ICON}</button>
+        </div>
       </div>
       <div class="m-flip"><div class="m-flip-inner">
         <div class="m-face m-front">${faceHtml(e, "hi")}</div>
@@ -2778,28 +2799,24 @@ const MOBILE_UI = (() => {
       </div></div>
       <div class="m-extras"></div>
     </div>`);
-    const flip = v.querySelector(".m-flip");
-    // Arriving with English already selected (swiping day to day): show the
-    // English face directly — the flip animates only on an actual toggle.
+    const flip = root.querySelector(".m-flip");
     if (lang === "en") {
       flip.classList.add("flipped");
       const inner = flip.querySelector(".m-flip-inner");
       inner.style.transition = "none";
       requestAnimationFrame(() => { inner.style.transition = ""; });
     }
-    $view.replaceChildren(v);
 
     // Faces are absolutely positioned (3D flip), so the container's height is
     // driven manually: always the height of the face currently shown.
     const syncHeight = () => {
-      const face = v.querySelector(lang === "hi" ? ".m-front" : ".m-back");
+      const face = root.querySelector(lang === "hi" ? ".m-front" : ".m-back");
       if (face) flip.style.height = face.scrollHeight + "px";
     };
-    v.querySelectorAll(".m-face img").forEach((im) => im.addEventListener("load", syncHeight));
-    window.addEventListener("resize", syncHeight);
+    root.querySelectorAll(".m-face img").forEach((im) => im.addEventListener("load", syncHeight));
     setTimeout(syncHeight, 50);
 
-    const extrasBox = v.querySelector(".m-extras");
+    const extrasBox = root.querySelector(".m-extras");
     const renderExtras = () => {
       const pages = (e.extras || []).filter((x) => x.lang === lang);
       extrasBox.innerHTML = pages.map((x) => `<img src="${x.url}" alt="" loading="lazy" decoding="async">`).join("");
@@ -2808,42 +2825,113 @@ const MOBILE_UI = (() => {
 
     // Double-tap the image → full-screen zoom mode on the visible language.
     wireDoubleTap(flip, () => {
-      const im = v.querySelector(lang === "hi" ? ".m-front img" : ".m-back img");
+      const im = root.querySelector(lang === "hi" ? ".m-front img" : ".m-back img");
       if (im && im.getAttribute("src")) enterZoom(im.getAttribute("src"));
     });
 
-    flipTo = (l) => {
+    // Share / Download / Copy act on whichever language image is visible now.
+    const curImg = () => (lang === "hi" ? e.img_hi_url : e.img_en_url);
+    const curName = () => `${e.id}_${lang === "hi" ? "Hin" : "Eng"}.jpg`;
+    const curCaption = () => shareCaption(
+      lang === "hi" ? (e.topic_hi || e.topic_en) : (e.topic_en || e.topic_hi),
+      lang === "hi" ? e.body_hi : e.body_en, "Baba Swami", e.date);
+    root.querySelector(".m-vact-share").addEventListener("click", () => {
+      const u = curImg(); if (u) shareImage(u, curName(), curCaption()); else toast("No image to share.");
+    });
+    const dl = root.querySelector(".m-vact-dl");
+    const refreshDl = () => {
+      const u = curImg();
+      if (u) { dl.href = u; dl.setAttribute("download", curName()); dl.classList.remove("m-vact-disabled"); }
+      else { dl.removeAttribute("href"); dl.classList.add("m-vact-disabled"); }
+    };
+    refreshDl();
+    root.querySelector(".m-vact-copy").addEventListener("click", () => {
+      const u = curImg(); if (u) copyImageToClipboard(u); else toast("No image to copy.");
+    });
+
+    function setLang(l, animate) {
       if (l === lang) return;
       lang = l;
-      prefLang = l;
-      paintLang(lang);
-      flip.classList.toggle("flipped", lang === "en");   // the book-flip
+      const inner = flip.querySelector(".m-flip-inner");
+      if (!animate) inner.style.transition = "none";
+      flip.classList.toggle("flipped", lang === "en");
+      if (!animate) requestAnimationFrame(() => { inner.style.transition = ""; });
       renderExtras();
-      setTimeout(syncHeight, 80);
-      setTimeout(syncHeight, 720);
-    };
+      refreshDl();
+      setTimeout(syncHeight, animate ? 720 : 80);
+    }
 
-    // Older / newer: swipe anywhere on the viewer.
-    api("/api/entry/" + encodeURIComponent(e.id) + "/neighbors").then((n) => {
-      let sx = 0, sy = 0;
-      v.addEventListener("touchstart", (t) => { sx = t.touches[0].clientX; sy = t.touches[0].clientY; }, { passive: true });
-      v.addEventListener("touchend", (t) => {
-        const dx = t.changedTouches[0].clientX - sx, dy = t.changedTouches[0].clientY - sy;
-        if (Math.abs(dx) < 60 || Math.abs(dy) > 70) return;
-        // Match the arrows' layout: ‹ older sits on the LEFT, › newer on the
-        // RIGHT. Swiping left pulls in the page from the right (newer) and
-        // vice versa; where an arrow is hidden the matching swipe does nothing.
-        if (dx < 0 && n.newer_id) go("#/entry/" + n.newer_id);
-        if (dx > 0 && n.older_id) go("#/entry/" + n.older_id);
-      }, { passive: true });
-    }).catch(() => {});
+    return { root, setLang, entry: e };
+  }
+
+  function feedSlideEl(ctl, kind) {
+    const slide = el(`<div class="m-feedslide" data-kind="${kind}"></div>`);
+    slide.appendChild(ctl ? ctl.root : el(`<div class="m-feedend">🕉️<br>${
+      kind === "older" ? "You've reached the earliest Guru's msg." : "You've reached the latest Guru's msg."
+    }</div>`));
+    return slide;
+  }
+
+  // Vertical scroll-snap feed: OLDER (top) · CURRENT (middle) · NEWER (bottom).
+  // Swiping DOWN reveals OLDER (tick sound); swiping UP reveals NEWER — the
+  // same up/down convention as Reels/Shorts. Replaces the old left/right swipe.
+  let _feedSettling = false;
+  async function buildFeed(centerEntry, isHome) {
+    setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", centerEntry);
+    _stageId = centerEntry.id;
+    store.setLastViewed(centerEntry.id);
+    // replaceState (not a new history entry) — scrolling through days must
+    // not flood the back-stack; the URL still stays accurate for sharing.
+    // Home keeps hash "#/" throughout the whole scroll session (never rewritten
+    // to a specific id) so the exit-popup's "am I at Home?" check keeps working
+    // no matter how many older/newer entries the user has scrolled through.
+    if (!isHome) history.replaceState(null, "", "#/entry/" + centerEntry.id);
+
+    let neighbors = {};
+    try { neighbors = await api("/api/entry/" + encodeURIComponent(centerEntry.id) + "/neighbors"); } catch {}
+    const [olderE, newerE] = await Promise.all([
+      neighbors.older_id ? api("/api/entry/" + encodeURIComponent(neighbors.older_id)).catch(() => null) : Promise.resolve(null),
+      neighbors.newer_id ? api("/api/entry/" + encodeURIComponent(neighbors.newer_id)).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (_stageId !== centerEntry.id) return;   // superseded by a newer navigation mid-fetch
+
+    paintLang(prefLang);
+    const oCtl = olderE ? buildViewerCard(olderE) : null;
+    const cCtl = buildViewerCard(centerEntry);
+    const nCtl = newerE ? buildViewerCard(newerE) : null;
+    _feedCards = [oCtl, cCtl, nCtl];
+
+    const feed = el(`<div class="m-feed"></div>`);
+    feed.appendChild(feedSlideEl(oCtl, "older"));
+    feed.appendChild(feedSlideEl(cCtl, "current"));
+    feed.appendChild(feedSlideEl(nCtl, "newer"));
+    $view.replaceChildren(feed);
+    feed.scrollTop = feed.clientHeight;   // land on the middle slide, no animation
+    // Belt-and-braces re-center once the async image loads (which resize the
+    // off-screen slides) have had a moment to settle.
+    setTimeout(() => { if (_stageId === centerEntry.id) feed.scrollTop = feed.clientHeight; }, 120);
+    _feedSettling = false;
+
+    const onSettle = () => {
+      if (_feedSettling || _stageId !== centerEntry.id) return;
+      const h = feed.clientHeight;
+      const idx = Math.round(feed.scrollTop / h);
+      if (idx === 1) return;   // still centered — nothing to do
+      if (idx <= 0 && olderE) { _feedSettling = true; playTick(); buildFeed(olderE, isHome); }
+      else if (idx >= 2 && newerE) { _feedSettling = true; buildFeed(newerE, isHome); }
+      else { feed.scrollTop = h; }   // no entry that direction — snap back to center
+    };
+    let settleTimer = null;
+    feed.addEventListener("scrollend", onSettle);
+    // Fallback for WebViews without the 'scrollend' event: settle-by-debounce.
+    feed.addEventListener("scroll", () => { clearTimeout(settleTimer); settleTimer = setTimeout(onSettle, 130); }, { passive: true });
   }
 
   // ---- generic page frame --------------------------------------------------
-  function pageFrame(title, node) {
-    flipTo = null;
+  function pageFrame(title, node, extraClass) {
+    _feedCards = [];
     setChrome("page", title, null);
-    const wrap = el(`<div class="m-page"></div>`);
+    const wrap = el(`<div class="m-page${extraClass ? " " + extraClass : ""}"></div>`);
     wrap.appendChild(node);
     $view.replaceChildren(wrap);
   }
@@ -2866,12 +2954,22 @@ const MOBILE_UI = (() => {
     rows.forEach((r) => box.appendChild(resultItem(r, hrefFor)));
   }
 
+  // Restored across a back-navigation (item 1): remembers the active tab,
+  // the word query + its results, and the date drill-down step, per context
+  // (a plain search vs. the community "pick a Guru's msg" picker).
+  const _searchState = {
+    plain: { tab: "word", word: "", wordHtml: "", wordResultsHtml: "", dateStep: "years", dateYear: null, dateYm: null, dateHtml: "", dateResultsHtml: "", numberValue: "" },
+    chat: { tab: "word", word: "", wordHtml: "", wordResultsHtml: "", dateStep: "years", dateYear: null, dateYm: null, dateHtml: "", dateResultsHtml: "", numberValue: "" },
+  };
+
   function searchPage(params) {
     // for=chat → picking a Guru's msg for the community chat: results open the
     // chat on that msg instead of the reader.
     const forChat = !!(params && params.get("for") === "chat");
     const hrefFor = (id) => forChat ? "#/m/community?wid=" + id : "#/entry/" + id;
-    const node = el(`<div>
+    const st = forChat ? _searchState.chat : _searchState.plain;
+
+    const node = el(`<div class="m-searchwrap">
       <div class="m-tabs">
         <button data-t="word" class="active">Word</button>
         <button data-t="date">Date</button>
@@ -2880,7 +2978,7 @@ const MOBILE_UI = (() => {
       <div class="m-tabbody"></div>
       <div class="m-results"></div>
     </div>`);
-    pageFrame(forChat ? "Choose Guru's Msg" : "Search By", node);
+    pageFrame(forChat ? "Choose Guru's Msg" : "Search By", node, "m-page-scroll");
     const body = node.querySelector(".m-tabbody");
     const results = node.querySelector(".m-results");
 
@@ -2889,10 +2987,13 @@ const MOBILE_UI = (() => {
         body.innerHTML = `<div class="m-inputrow">
           <input type="search" id="m-q" placeholder="Search in English or Hindi…" autocomplete="off"></div>`;
         const q = body.querySelector("#m-q");
+        q.value = st.word;
+        results.innerHTML = st.wordResultsHtml;   // restore instantly, no re-fetch/flash
         let deb = null, seq = 0;
         const run = async () => {
           const term = q.value.trim();
-          if (!term) { results.innerHTML = ""; return; }
+          st.word = term;
+          if (!term) { results.innerHTML = ""; st.wordResultsHtml = ""; return; }
           const mySeq = ++seq;
           try {
             const d = await api("/api/search?q=" + encodeURIComponent(term));
@@ -2900,44 +3001,90 @@ const MOBILE_UI = (() => {
             results.innerHTML = `<div class="m-count">${d.count} Guru's msg${d.count === 1 ? "" : "s"} found</div>`;
             const list = el(`<div></div>`); results.appendChild(list);
             showResults(list, d.results, "", hrefFor);
-          } catch (err) { if (mySeq === seq) results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+            st.wordResultsHtml = results.innerHTML;
+          } catch (err) { if (mySeq === seq) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; st.wordResultsHtml = results.innerHTML; } }
         };
         // Live search: results appear as you type.
         q.addEventListener("input", () => { clearTimeout(deb); deb = setTimeout(run, 250); });
         q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); clearTimeout(deb); run(); } });
-        q.focus();
+        if (!st.word) q.focus();
       },
       date() {
-        body.innerHTML = `<div class="m-inputrow"><input type="date" id="m-d"></div>
-          <div class="m-hint">Pick a day to see its Guru's msg.</div>`;
-        body.querySelector("#m-d").addEventListener("change", async (ev) => {
-          const iso = ev.target.value; if (!iso) return;
+        // Year → Month → that month's results (mirrors desktop's Browse by Date).
+        async function showYears() {
+          st.dateStep = "years"; st.dateYear = null; st.dateYm = null;
+          body.innerHTML = `<div class="loading">Loading…</div>`;
+          results.innerHTML = "";
+          try {
+            const d = await api("/api/browse?group=year");
+            const box = el(`<div class="m-yearchips"></div>`);
+            d.periods.forEach((p) => {
+              const c = el(`<button class="chip-btn">${p.period} · ${p.count}</button>`);
+              c.addEventListener("click", showMonths.bind(null, p.period));
+              box.appendChild(c);
+            });
+            body.replaceChildren(box);
+            st.dateHtml = body.innerHTML;
+          } catch (err) { body.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+        }
+        async function showMonths(year) {
+          st.dateStep = "months"; st.dateYear = year; st.dateYm = null;
+          body.innerHTML = `<div class="loading">Loading…</div>`;
+          results.innerHTML = "";
+          try {
+            const d = await api("/api/browse?group=month");
+            const box = el(`<div class="m-yearchips"></div>`);
+            d.periods.filter((p) => p.period.startsWith(year + "-")).forEach((p) => {
+              const c = el(`<button class="chip-btn">${periodLabel("month", p.period)} · ${p.count}</button>`);
+              c.addEventListener("click", showMonthResults.bind(null, p.period));
+              box.appendChild(c);
+            });
+            const back = el(`<button class="m-backlink">‹ Years</button>`);
+            back.addEventListener("click", showYears);
+            body.replaceChildren(back, box);
+            st.dateHtml = body.innerHTML;
+          } catch (err) { body.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
+        }
+        async function showMonthResults(ym) {
+          st.dateStep = "results"; st.dateYm = ym;
+          const [y, m] = ym.split("-");
+          const back = el(`<button class="m-backlink">‹ ${y}</button>`);
+          back.addEventListener("click", showMonths.bind(null, y));
+          body.replaceChildren(back);
+          st.dateHtml = body.innerHTML;
           results.innerHTML = `<div class="loading">Loading…</div>`;
           try {
-            const d = await api("/api/browse?date=" + encodeURIComponent(iso));
-            if (d.results.length === 1) { go(hrefFor(d.results[0].id)); return; }
-            showResults(results, d.results, "Guru's msg was not shared on this day.", hrefFor);
-          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
-        });
+            const d = await api(`/api/browse?year=${encodeURIComponent(y)}&month=${parseInt(m, 10)}`);
+            showResults(results, d.results, "No Guru's msg that month.", hrefFor);
+            st.dateResultsHtml = results.innerHTML;
+          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; st.dateResultsHtml = results.innerHTML; }
+        }
+        if (st.dateStep === "results" && st.dateYm) showMonthResults(st.dateYm);
+        else if (st.dateStep === "months" && st.dateYear) showMonths(st.dateYear);
+        else showYears();
       },
       number() {
         body.innerHTML = `<div class="m-inputrow">
           <input type="text" id="m-n" inputmode="numeric" placeholder="Guru's msg number, e.g. 3446">
           <button class="btn primary" id="m-n-go">Open</button></div>`;
         const n = body.querySelector("#m-n");
+        n.value = st.numberValue;
+        n.addEventListener("input", () => { st.numberValue = n.value; });
         const goN = () => { const v = n.value.trim(); if (v) go(hrefFor(encodeURIComponent(v))); };
         body.querySelector("#m-n-go").addEventListener("click", goN);
         n.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); goN(); } });
-        n.focus();
+        if (!st.numberValue) n.focus();
       },
     };
     node.querySelector(".m-tabs").addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;
+      st.tab = b.dataset.t;
       node.querySelectorAll(".m-tabs button").forEach((x) => x.classList.toggle("active", x === b));
       results.innerHTML = "";
-      tabs[b.dataset.t]();
+      tabs[st.tab]();
     });
-    tabs.word();
+    node.querySelectorAll(".m-tabs button").forEach((x) => x.classList.toggle("active", x.dataset.t === st.tab));
+    tabs[st.tab]();
   }
 
   // ---- Community (full page, WhatsApp-style) -------------------------------
@@ -3084,7 +3231,7 @@ const MOBILE_UI = (() => {
     fallthrough(seg) {
       closeDrawer();
       exitZoom();
-      flipTo = null;
+      _feedCards = [];
       setChrome("page", PAGE_TITLES[seg[0]] || "Samarpan Upnishad", null);
     },
     enhanceSettings() {
@@ -3098,14 +3245,18 @@ const MOBILE_UI = (() => {
           <span class="m-switch"><input type="checkbox" id="m-zb-side"><i></i></span></label>
         <label class="m-switchrow">Home button on left side
           <span class="m-switch"><input type="checkbox" id="m-home-side"><i></i></span></label>
+        <label class="m-switchrow">Tick sound when scrolling to a previous day
+          <span class="m-switch"><input type="checkbox" id="m-tick-sound"><i></i></span></label>
         <div class="m-hint">Double-tap a Guru's msg image to open zoom. Off = right side (default).</div>
       </div>`);
       prose.appendChild(box);
-      const zb = box.querySelector("#m-zb-side"), hb = box.querySelector("#m-home-side");
+      const zb = box.querySelector("#m-zb-side"), hb = box.querySelector("#m-home-side"), ts = box.querySelector("#m-tick-sound");
       zb.checked = pref("wa:mobile:zoomBarSide", "right") === "left";
       hb.checked = pref("wa:mobile:homeSide", "right") === "left";
+      ts.checked = tickEnabled();
       zb.addEventListener("change", () => setPref("wa:mobile:zoomBarSide", zb.checked ? "left" : "right"));
       hb.addEventListener("change", () => { setPref("wa:mobile:homeSide", hb.checked ? "left" : "right"); applyHomeSide(); });
+      ts.addEventListener("change", () => setPref("wa:mobile:tickSound", ts.checked ? "1" : "0"));
     },
   };
 })();
