@@ -1230,9 +1230,21 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 .m-extras { max-width: 640px; margin: 14px auto 0; }
 .m-extras img { display: block; width: 100%; border-radius: 14px; margin-bottom: 14px; box-shadow: 0 6px 26px rgba(40,30,60,.14); }
 
+/* Standalone single-message view (Lucky Msg / a typed-in number) — same
+   sizing as one feed slide, just without the vertical scroll/siblings. */
+.m-singlewrap {
+  height: calc(100vh - 58px - env(safe-area-inset-top) - 84px - env(safe-area-inset-bottom));
+  overflow-y: auto; display: flex; align-items: center; padding: 8px 12px;
+}
+
 /* ---- generic pages ---- */
 .m-page { max-width: 640px; margin: 0 auto; }
-/* Search By: tabs/input stay put, only the results list scrolls. */
+/* Search By / Favorites: tabs/input stay put, only the results list scrolls.
+   :has() drops the outer .content's min-height:100vh for these pages —
+   otherwise a short result set (e.g. 3 matches) left a tall blank gap below
+   the fixed-height scroll box instead of the page just being exactly as
+   tall as it needs to be. */
+body.m-mode .content:has(.m-page-scroll) { min-height: 0; }
 .m-page.m-page-scroll {
   height: calc(100vh - 58px - env(safe-area-inset-top));
   display: flex; flex-direction: column; overflow: hidden;
@@ -1245,6 +1257,19 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
   border: none; background: none; color: var(--accent); font: 600 14px var(--sans);
   padding: 6px 2px 12px; cursor: pointer; text-align: left;
 }
+/* Search by Date, step 3: a real calendar grid instead of a flat list. */
+.m-cal { padding: 4px 2px; }
+.m-cal-head { text-align: center; font: 700 15px var(--sans); color: var(--accent); margin-bottom: 12px; }
+.m-cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font: 600 11.5px var(--sans); color: var(--muted); margin-bottom: 6px; }
+.m-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.m-cal-cell {
+  aspect-ratio: 1; border: none; border-radius: 10px; background: var(--bg);
+  color: var(--muted); font: 600 14px var(--sans);
+  display: flex; align-items: center; justify-content: center;
+}
+.m-cal-cell.has-msg { background: var(--accent); color: #fff; cursor: pointer; }
+.m-cal-cell:disabled { opacity: .35; }
+.m-cal-cell.m-cal-blank { background: none; }
 .m-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .m-tabs button {
   flex: 1; padding: 10px 0; border: 1px solid var(--border); border-radius: 22px;

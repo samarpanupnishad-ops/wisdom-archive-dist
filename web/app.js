@@ -1547,7 +1547,9 @@ async function renderRandom() {
       try { localStorage.setItem("wa:luckyDate", dayKey); localStorage.setItem("wa:luckyId", String(id)); } catch {}
     }
     if (!current(nav)) return;
-    go("#/entry/" + id);
+    // On mobile this is a single, standalone pick — no swiping away to other
+    // days (that's what the vertical feed everywhere else is for).
+    go("#/entry/" + id + (MOBILE_UI.active ? "?single=1" : ""));
   } catch { if (current(nav)) $view.innerHTML = `<div class="empty">No Guru's msg available.</div>`; }
 }
 
@@ -2758,12 +2760,27 @@ const MOBILE_UI = (() => {
       }
       const e = await api("/api/entry/" + encodeURIComponent(id));
       if (!current(nav)) return;
-      await buildFeed(e, isHome);
+      // Lucky Msg / a typed-in number lookup: one standalone message, no
+      // scrolling away to other days.
+      if (params && params.get("single") === "1") renderSingleCard(e);
+      else await buildFeed(e, isHome);
     } catch (err) {
       if (!current(nav)) return;
       setChrome("page", "Guru's msg");
       $view.innerHTML = `<div class="m-page"><div class="empty">Guru's msg #${escapeHtml(String(id || ""))} not found.</div></div>`;
     }
+  }
+
+  function renderSingleCard(e) {
+    setChrome("viewer", "Samarpan Upnishad", e);
+    _stageId = e.id;
+    store.setLastViewed(e.id);
+    paintLang(prefLang);
+    const ctl = buildViewerCard(e);
+    _feedCards = [ctl];
+    const wrap = el(`<div class="m-singlewrap"></div>`);
+    wrap.appendChild(ctl.root);
+    $view.replaceChildren(wrap);
   }
 
   function faceHtml(e, lang) {
@@ -2775,7 +2792,44 @@ const MOBILE_UI = (() => {
     return `<div class="m-noimg">🕉️<br>${lang === "hi" ? "Hindi" : "English"} message is not available for this day.</div>`;
   }
 
-  // One reading card: header (date/day left in accent + share/download/copy
+  // ---- native Share / Save-to-Gallery (Android) --------------------------
+  // True system-clipboard image copy needs custom native code with no
+  // reliable ready-made plugin, so mobile drops "Copy" and keeps Share +
+  // Download, both backed by real Capacitor plugins instead of the web APIs
+  // (navigator.share / <a download>) that don't work inside the WebView.
+  const isNativeApp = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  function blobToDataUri(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  async function nativeShareImage(url, filename, text) {
+    const P = window.Capacitor.Plugins;
+    const dataUri = await blobToDataUri(await (await fetch(url)).blob());
+    const path = "wa-share/" + filename;
+    await P.Filesystem.writeFile({ path, directory: "CACHE", data: dataUri.split(",")[1], recursive: true });
+    const { uri } = await P.Filesystem.getUri({ path, directory: "CACHE" });
+    await P.Share.share({ title: "Samarpan Upnishad", text, files: [uri], dialogTitle: "Share" });
+  }
+  const GALLERY_ALBUM = "Samarpan Upnishad";
+  async function ensureGalleryAlbum() {
+    const Media = window.Capacitor.Plugins.Media;
+    try { await Media.createAlbum({ name: GALLERY_ALBUM }); } catch {}   // already exists — fine
+    const { path } = await Media.getAlbumsPath();
+    return path + "/" + GALLERY_ALBUM;
+  }
+  async function nativeSaveToGallery(url, filename) {
+    const dataUri = await blobToDataUri(await (await fetch(url)).blob());
+    const albumIdentifier = await ensureGalleryAlbum();
+    await window.Capacitor.Plugins.Media.savePhoto({
+      path: dataUri, albumIdentifier, fileName: filename.replace(/\.[^.]+$/, ""),
+    });
+  }
+
+  // One reading card: header (date/day left in accent + share/download
   // right, acting on whichever language is currently showing) + the flip
   // image + extra pages. Returned as a controller so the language toggle can
   // update every mounted card (older/current/newer) at once.
@@ -2790,7 +2844,6 @@ const MOBILE_UI = (() => {
         <div class="m-vacts">
           <button class="m-vact m-vact-share" title="Share" aria-label="Share">${SHARE_ICON}</button>
           <a class="m-vact m-vact-dl" title="Download image" aria-label="Download image">${DOWNLOAD_ICON}</a>
-          <button class="m-vact m-vact-copy" title="Copy image" aria-label="Copy image">${COPY_ICON}</button>
         </div>
       </div>
       <div class="m-flip"><div class="m-flip-inner">
@@ -2829,14 +2882,20 @@ const MOBILE_UI = (() => {
       if (im && im.getAttribute("src")) enterZoom(im.getAttribute("src"));
     });
 
-    // Share / Download / Copy act on whichever language image is visible now.
+    // Share / Download act on whichever language image is visible now.
     const curImg = () => (lang === "hi" ? e.img_hi_url : e.img_en_url);
     const curName = () => `${e.id}_${lang === "hi" ? "Hin" : "Eng"}.jpg`;
     const curCaption = () => shareCaption(
       lang === "hi" ? (e.topic_hi || e.topic_en) : (e.topic_en || e.topic_hi),
       lang === "hi" ? e.body_hi : e.body_en, "Baba Swami", e.date);
-    root.querySelector(".m-vact-share").addEventListener("click", () => {
-      const u = curImg(); if (u) shareImage(u, curName(), curCaption()); else toast("No image to share.");
+    root.querySelector(".m-vact-share").addEventListener("click", async () => {
+      const u = curImg(); if (!u) { toast("No image to share."); return; }
+      if (isNativeApp && window.Capacitor.Plugins.Share) {
+        try { await nativeShareImage(u, curName(), curCaption()); }
+        catch (err) { toast("Couldn't share: " + (err && err.message ? err.message : "please try again.")); }
+      } else {
+        shareImage(u, curName(), curCaption());
+      }
     });
     const dl = root.querySelector(".m-vact-dl");
     const refreshDl = () => {
@@ -2845,8 +2904,14 @@ const MOBILE_UI = (() => {
       else { dl.removeAttribute("href"); dl.classList.add("m-vact-disabled"); }
     };
     refreshDl();
-    root.querySelector(".m-vact-copy").addEventListener("click", () => {
-      const u = curImg(); if (u) copyImageToClipboard(u); else toast("No image to copy.");
+    dl.addEventListener("click", async (ev) => {
+      if (!isNativeApp) return;   // desktop/browser: the plain <a download> handles it
+      ev.preventDefault();
+      const u = curImg(); if (!u) { toast("No image to save."); return; }
+      dl.classList.add("m-vact-disabled");
+      try { await nativeSaveToGallery(u, curName()); toast("Saved to Gallery → " + GALLERY_ALBUM); }
+      catch (err) { toast("Couldn't save: " + (err && err.message ? err.message : "please try again.")); }
+      finally { dl.classList.remove("m-vact-disabled"); }
     });
 
     function setLang(l, animate) {
@@ -2954,13 +3019,15 @@ const MOBILE_UI = (() => {
     rows.forEach((r) => box.appendChild(resultItem(r, hrefFor)));
   }
 
-  // Restored across a back-navigation (item 1): remembers the active tab,
-  // the word query + its results, and the date drill-down step, per context
-  // (a plain search vs. the community "pick a Guru's msg" picker).
-  const _searchState = {
-    plain: { tab: "word", word: "", wordHtml: "", wordResultsHtml: "", dateStep: "years", dateYear: null, dateYm: null, dateHtml: "", dateResultsHtml: "", numberValue: "" },
-    chat: { tab: "word", word: "", wordHtml: "", wordResultsHtml: "", dateStep: "years", dateYear: null, dateYm: null, dateHtml: "", dateResultsHtml: "", numberValue: "" },
-  };
+  // Restored when returning from a result's detail page (item 1); cleared the
+  // moment the user leaves Search By for anywhere else (see route()'s
+  // preserveSearch check), per context (a plain search vs. the community
+  // "pick a Guru's msg" picker).
+  function freshSearchState() {
+    return { tab: "word", word: "", wordResultsHtml: "", dateStep: "years", dateYear: null, dateYm: null, numberValue: "" };
+  }
+  const _searchState = { plain: freshSearchState(), chat: freshSearchState() };
+  function resetSearchState() { _searchState.plain = freshSearchState(); _searchState.chat = freshSearchState(); }
 
   function searchPage(params) {
     // for=chat → picking a Guru's msg for the community chat: results open the
@@ -3024,7 +3091,6 @@ const MOBILE_UI = (() => {
               box.appendChild(c);
             });
             body.replaceChildren(box);
-            st.dateHtml = body.innerHTML;
           } catch (err) { body.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
         }
         async function showMonths(year) {
@@ -3042,22 +3108,38 @@ const MOBILE_UI = (() => {
             const back = el(`<button class="m-backlink">‹ Years</button>`);
             back.addEventListener("click", showYears);
             body.replaceChildren(back, box);
-            st.dateHtml = body.innerHTML;
           } catch (err) { body.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
         }
         async function showMonthResults(ym) {
           st.dateStep = "results"; st.dateYm = ym;
-          const [y, m] = ym.split("-");
+          const [yStr, mStr] = ym.split("-");
+          const y = parseInt(yStr, 10), m = parseInt(mStr, 10);
           const back = el(`<button class="m-backlink">‹ ${y}</button>`);
-          back.addEventListener("click", showMonths.bind(null, y));
+          back.addEventListener("click", showMonths.bind(null, yStr));
           body.replaceChildren(back);
-          st.dateHtml = body.innerHTML;
           results.innerHTML = `<div class="loading">Loading…</div>`;
           try {
-            const d = await api(`/api/browse?year=${encodeURIComponent(y)}&month=${parseInt(m, 10)}`);
-            showResults(results, d.results, "No Guru's msg that month.", hrefFor);
-            st.dateResultsHtml = results.innerHTML;
-          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; st.dateResultsHtml = results.innerHTML; }
+            const d = await api(`/api/browse?year=${y}&month=${m}`);
+            const byDay = {};
+            d.results.forEach((r) => { byDay[parseInt(r.date.split("-")[2], 10)] = r.id; });
+            const totalDays = new Date(y, m, 0).getDate();
+            const startDow = new Date(y, m - 1, 1).getDay();   // 0 = Sunday
+            const cal = el(`<div class="m-cal">
+              <div class="m-cal-head">${periodLabel("month", ym)}</div>
+              <div class="m-cal-dow">${["S", "M", "T", "W", "T", "F", "S"].map((x) => `<span>${x}</span>`).join("")}</div>
+              <div class="m-cal-grid"></div>
+            </div>`);
+            const grid = cal.querySelector(".m-cal-grid");
+            for (let i = 0; i < startDow; i++) grid.appendChild(el(`<span class="m-cal-cell m-cal-blank"></span>`));
+            for (let day = 1; day <= totalDays; day++) {
+              const id = byDay[day];
+              const cell = el(`<button class="m-cal-cell${id ? " has-msg" : ""}"${id ? "" : " disabled"}>${day}</button>`);
+              if (id) cell.addEventListener("click", () => go(hrefFor(id)));
+              grid.appendChild(cell);
+            }
+            results.replaceChildren(cal);
+           
+          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
         }
         if (st.dateStep === "results" && st.dateYm) showMonthResults(st.dateYm);
         else if (st.dateStep === "months" && st.dateYear) showMonths(st.dateYear);
@@ -3070,7 +3152,12 @@ const MOBILE_UI = (() => {
         const n = body.querySelector("#m-n");
         n.value = st.numberValue;
         n.addEventListener("input", () => { st.numberValue = n.value; });
-        const goN = () => { const v = n.value.trim(); if (v) go(hrefFor(encodeURIComponent(v))); };
+        // A typed-in number is a direct lookup for one specific message —
+        // open it standalone (no scrolling away to other days).
+        const goN = () => {
+          const v = n.value.trim(); if (!v) return;
+          go(forChat ? hrefFor(encodeURIComponent(v)) : "#/entry/" + encodeURIComponent(v) + "?single=1");
+        };
         body.querySelector("#m-n-go").addEventListener("click", goN);
         n.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); goN(); } });
         if (!st.numberValue) n.focus();
@@ -3124,6 +3211,17 @@ const MOBILE_UI = (() => {
     // WhatsApp reading order: open at the latest message (bottom).
     const msgs = body.querySelector("#wc-msgs");
     if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  // ---- Favorites (search-list styling; opens like any Home msg) -----------
+  async function favoritesPage() {
+    const node = el(`<div class="m-searchwrap"><div class="m-results"></div></div>`);
+    pageFrame("Favorites", node, "m-page-scroll");
+    const results = node.querySelector(".m-results");
+    results.innerHTML = `<div class="loading">Loading…</div>`;
+    const ids = store.favs();
+    const entries = (await Promise.all(ids.map((id) => api("/api/entry/" + id).catch(() => null)))).filter(Boolean);
+    showResults(results, entries, "No favorites yet. Open a Guru's msg and tap ♡ to add it here.", (id) => "#/entry/" + id);
   }
 
   // ---- placeholders (content arrives later) -------------------------------
@@ -3212,13 +3310,18 @@ const MOBILE_UI = (() => {
 
   return {
     active,
-    handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m"; },
+    handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m" || seg[0] === "favorites"; },
     async route(seg, params) {
       closeDrawer();
       exitZoom();
       closeChatStream();
+      // Leaving the Search By flow for anywhere except a result's detail page
+      // (or staying within search itself) clears the remembered query/results.
+      const preserveSearch = seg[0] === "entry" || (seg[0] === "m" && seg[1] === "search");
+      if (!preserveSearch) resetSearchState();
       if (!seg.length) return viewer(null, params, true);
-      if (seg[0] === "entry") return viewer(seg[1], null, false);
+      if (seg[0] === "entry") return viewer(seg[1], params, false);
+      if (seg[0] === "favorites") return favoritesPage();
       const p = seg[1];
       if (p === "search") return searchPage(params);
       if (p === "community") return communityPage(params);
