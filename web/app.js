@@ -34,6 +34,9 @@ function fmtDateShare(iso) {
   const mon = new Date(y, m - 1, d).toLocaleString("en", { month: "long" });
   return `${d}${ordinalSuffix(d)} ${mon}, ${y}`;
 }
+// "10072026" — ddmmyyyy (ISO parts are already zero-padded); for shared/saved
+// image file names, e.g. GM_10072026.jpg.
+function fmtDateFile(iso) { if (!iso) return ""; const [y, m, d] = iso.split("-"); return `${d}${m}${y}`; }
 function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 // Thumbnail <img> (lazy-loaded + async-decoded) or an empty placeholder box.
 function thumbImg(e) { return e && e.thumb_url ? `<img class="thumb" src="${e.thumb_url}" alt="" loading="lazy" decoding="async">` : `<div class="thumb"></div>`; }
@@ -3001,7 +3004,7 @@ const MOBILE_UI = (() => {
 
     // Share / Download act on whichever language image is visible now.
     const curImg = () => (lang === "hi" ? e.img_hi_url : e.img_en_url);
-    const curName = () => `${e.id}_${lang === "hi" ? "Hin" : "Eng"}.jpg`;
+    const curName = () => `GM_${e.date ? fmtDateFile(e.date) : e.id}.jpg`;
     // Share subject/caption = one clean line, e.g. "Guru's Daily msg - 9th July, 2026".
     const curCaption = () => `Guru's Daily msg - ${fmtDateShare(e.date)}`;
     if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
