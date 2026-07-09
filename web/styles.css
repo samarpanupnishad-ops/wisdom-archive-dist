@@ -1226,8 +1226,12 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 }
 .m-vact:active { background: var(--accent-soft, #f6e7dc); }
 .m-vact.m-vact-disabled { opacity: .4; pointer-events: none; }
-.m-vact-fav.on { color: var(--accent); border-color: var(--accent); }
-.m-vact-fav.on svg { fill: var(--accent); }
+/* Top-panel glyph colours (companion palette to the orange theme). Favorite
+   is a neutral outline until tapped, then fills red. */
+.m-vact-share { color: #f48fb1; }   /* light pink */
+.m-vact-dl { color: #4fa6e8; }      /* light blue */
+.m-vact-fav.on { color: #e53935; border-color: #e53935; }
+.m-vact-fav.on svg { fill: #e53935; }
 .m-flip { position: relative; height: 100%; perspective: 1600px; }
 .m-flip-inner {
   position: absolute; inset: 0; transform-style: preserve-3d;
