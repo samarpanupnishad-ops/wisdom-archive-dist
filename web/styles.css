@@ -1429,22 +1429,45 @@ body.m-mode.m-zoom .m-home-fab { display: none !important; }
   max-width: 100%; max-height: 100%; user-select: none; -webkit-user-select: none;
   will-change: transform; border-radius: 4px;
 }
+/* Compact volume-rocker capsule: short pill on the right edge, low (near
+   thumb reach), fill rises from the bottom, tick at the 50 = normal mark,
+   fades out when idle (.m-hidden). */
 .m-zoombar {
-  position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
-  height: 56%; padding: 14px 10px; touch-action: none;
-  background: rgba(255, 255, 255, .12); border-radius: 22px; backdrop-filter: blur(4px);
+  position: absolute; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom));
+  width: 40px; height: 150px; touch-action: none;
+  border-radius: 22px; transition: opacity .28s ease;
 }
-.m-zoomwrap.m-left .m-zoombar { left: 8px; right: auto; }
-.m-zb-track { position: relative; width: 6px; height: 100%; margin: 0 auto;
-  background: rgba(255, 255, 255, .35); border-radius: 3px; }
-.m-zb-mid { position: absolute; top: 50%; left: -5px; right: -5px; height: 2px;
-  background: rgba(255, 255, 255, .8); }
+.m-zoombar.m-hidden { opacity: 0; pointer-events: none; }
+.m-zoomwrap.m-left .m-zoombar { left: 16px; right: auto; }
+.m-zb-track {
+  position: absolute; inset: 0; border-radius: 22px; overflow: hidden;
+  background: rgba(255, 255, 255, .22); backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+.m-zb-fill {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 50%;
+  background: var(--accent);
+}
+.m-zb-mid {
+  position: absolute; left: 7px; right: 7px; top: 50%; height: 2px;
+  background: rgba(255, 255, 255, .9); transform: translateY(-50%);
+  z-index: 2; pointer-events: none;
+}
 .m-zb-knob {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 28px; height: 28px; border-radius: 50%;
+  position: absolute; left: 50%; bottom: 50%;
+  width: 26px; height: 26px; border-radius: 50%;
   background: var(--accent); border: 3px solid #fff;
   box-shadow: 0 2px 10px rgba(0, 0, 0, .5);
+  transform: translate(-50%, 50%); z-index: 3; pointer-events: none;
 }
+.m-zb-badge {
+  position: absolute; right: 48px; bottom: 50%; transform: translateY(50%);
+  padding: 3px 9px; border-radius: 11px; white-space: nowrap;
+  background: rgba(16, 12, 22, .92); color: #fff; font: 700 12px var(--sans);
+  opacity: 0; transition: opacity .15s ease; z-index: 4; pointer-events: none;
+}
+.m-zb-badge.on { opacity: 1; }
+.m-zoomwrap.m-left .m-zb-badge { left: 48px; right: auto; }
 
 /* ---- home button on the left (Settings toggle) ---- */
 .m-home-fab.m-left { left: 14px; right: auto; }

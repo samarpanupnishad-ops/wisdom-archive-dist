@@ -2633,15 +2633,45 @@ const MOBILE_UI = (() => {
   const zScale = (v) => 0.25 * Math.pow(16, v / 100);          // 0→.25  50→1  100→4
   const zValue = (s) => 100 * Math.log(s / 0.25) / Math.log(16);
   function tDist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
-  function wireDoubleTap(elm, fn) {
-    let last = 0, lx = 0, ly = 0;
+  // Robust double-tap (+ optional single-tap) detection. The old version only
+  // inspected touchEND positions, so it couldn't tell a real tap from the end
+  // of a scroll/pan swipe — on the scroll-snap feed that corrupted the state
+  // and double-taps only fired "randomly" after a few tries. Now each touch is
+  // tracked from touchSTART: a touch only counts as a tap if it was a single
+  // finger, barely moved, and was brief. Two such taps close in time/space =
+  // double-tap. A lone tap (when onSingle is given) fires after a short delay,
+  // unless a second tap arrives first.
+  function wireDoubleTap(elm, onDouble, onSingle) {
+    let lastTap = 0, lastX = 0, lastY = 0;
+    let sx = 0, sy = 0, st = 0, moved = false, multi = false;
+    let singleTimer = null;
+    elm.addEventListener("touchstart", (e) => {
+      if (e.touches.length > 1) { multi = true; return; }
+      multi = false; moved = false;
+      const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now();
+    }, { passive: true });
+    elm.addEventListener("touchmove", (e) => {
+      const t = e.touches[0]; if (!t) return;
+      if (Math.hypot(t.clientX - sx, t.clientY - sy) > 12) moved = true;
+    }, { passive: true });
     elm.addEventListener("touchend", (e) => {
       const t = e.changedTouches[0]; if (!t) return;
+      // Not a clean tap (multi-touch, dragged, or long press) → reset, ignore.
+      if (multi || moved || Date.now() - st > 300) { lastTap = 0; return; }
       const now = Date.now();
-      if (now - last < 350 && Math.hypot(t.clientX - lx, t.clientY - ly) < 40) { last = 0; fn(); }
-      else { last = now; lx = t.clientX; ly = t.clientY; }
+      if (now - lastTap < 320 && Math.hypot(t.clientX - lastX, t.clientY - lastY) < 40) {
+        lastTap = 0;
+        if (singleTimer) { clearTimeout(singleTimer); singleTimer = null; }
+        onDouble();
+      } else {
+        lastTap = now; lastX = t.clientX; lastY = t.clientY;
+        if (onSingle) {
+          if (singleTimer) clearTimeout(singleTimer);
+          singleTimer = setTimeout(() => { singleTimer = null; onSingle(); }, 330);
+        }
+      }
     });
-    elm.addEventListener("dblclick", fn);   // browser test mode
+    elm.addEventListener("dblclick", onDouble);   // desktop/browser test mode
   }
   function exitZoom() {
     if (!zoomWrap) return false;
@@ -2653,17 +2683,25 @@ const MOBILE_UI = (() => {
     exitZoom();
     document.body.classList.add("m-zoom");
     const side = pref("wa:mobile:zoomBarSide", "right");
+    // Compact volume-rocker capsule (bottom = thumbnail, mid tick = normal,
+    // top = max), fill rises from the bottom. Sits low on the right edge and
+    // auto-hides ~2s after the last interaction.
     zoomWrap = el(`<div class="m-zoomwrap${side === "left" ? " m-left" : ""}">
       <div class="m-zoomview"><img src="${imgSrc}" alt="" draggable="false"></div>
-      <div class="m-zoombar"><div class="m-zb-track">
-        <div class="m-zb-mid"></div><div class="m-zb-knob"></div>
-      </div></div>
+      <div class="m-zoombar m-hidden">
+        <div class="m-zb-track"><div class="m-zb-fill"></div></div>
+        <div class="m-zb-mid"></div>
+        <div class="m-zb-knob"></div>
+        <div class="m-zb-badge"></div>
+      </div>
     </div>`);
     document.body.appendChild(zoomWrap);
     const img = zoomWrap.querySelector("img");
     const view = zoomWrap.querySelector(".m-zoomview");
-    const track = zoomWrap.querySelector(".m-zb-track");
+    const bar = zoomWrap.querySelector(".m-zoombar");
+    const fill = zoomWrap.querySelector(".m-zb-fill");
     const knob = zoomWrap.querySelector(".m-zb-knob");
+    const badge = zoomWrap.querySelector(".m-zb-badge");
     let v = 50, tx = 0, ty = 0;
     const apply = () => {
       const s = zScale(v);
@@ -2671,24 +2709,44 @@ const MOBILE_UI = (() => {
       const my = Math.max(0, (img.clientHeight * s - view.clientHeight) / 2);
       tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
       img.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
-      knob.style.top = (100 - v) + "%";
+      fill.style.height = v + "%";
+      knob.style.bottom = v + "%";
+      badge.style.bottom = v + "%";
+      badge.textContent = Math.round(v) + "%";
     };
     img.addEventListener("load", apply);
     apply();
-    // --- vertical bar
-    const setFromY = (clientY) => {
-      const r = track.getBoundingClientRect();
-      v = Math.max(0, Math.min(100, 100 - ((clientY - r.top) / r.height) * 100));
-      apply();
+
+    // --- auto-hide (fades out ~2s after the last interaction)
+    let hideTimer = null;
+    const showBar = () => {
+      bar.classList.remove("m-hidden");
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => bar.classList.add("m-hidden"), 2000);
     };
-    track.addEventListener("touchstart", (e) => { e.stopPropagation(); setFromY(e.touches[0].clientY); }, { passive: true });
-    track.addEventListener("touchmove", (e) => { e.stopPropagation(); setFromY(e.touches[0].clientY); }, { passive: true });
-    track.addEventListener("mousedown", (e) => {
-      e.preventDefault(); setFromY(e.clientY);
+    const hideBar = () => { clearTimeout(hideTimer); bar.classList.add("m-hidden"); };
+
+    // --- capsule drag (with a light snap + haptic tick at the 50 = normal mark)
+    let snapped = false;
+    const setFromY = (clientY) => {
+      const r = bar.getBoundingClientRect();
+      let nv = Math.max(0, Math.min(100, 100 - ((clientY - r.top) / r.height) * 100));
+      if (Math.abs(nv - 50) < 6) {
+        if (!snapped) { try { navigator.vibrate && navigator.vibrate(8); } catch {} }
+        nv = 50; snapped = true;
+      } else snapped = false;
+      v = nv; apply(); showBar();
+    };
+    bar.addEventListener("touchstart", (e) => { e.stopPropagation(); badge.classList.add("on"); setFromY(e.touches[0].clientY); }, { passive: true });
+    bar.addEventListener("touchmove", (e) => { e.stopPropagation(); setFromY(e.touches[0].clientY); }, { passive: true });
+    bar.addEventListener("touchend", (e) => { e.stopPropagation(); badge.classList.remove("on"); showBar(); }, { passive: true });
+    bar.addEventListener("mousedown", (e) => {
+      e.preventDefault(); badge.classList.add("on"); setFromY(e.clientY);
       const mv = (ev) => setFromY(ev.clientY);
-      const up = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); };
+      const up = () => { badge.classList.remove("on"); showBar(); window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); };
       window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up);
     });
+
     // --- one-finger pan, two-finger pinch
     let p0 = null, pinch0 = null;
     view.addEventListener("touchstart", (e) => {
@@ -2702,11 +2760,16 @@ const MOBILE_UI = (() => {
         apply();
       } else if (e.touches.length === 2 && pinch0) {
         v = Math.max(0, Math.min(100, zValue(zScale(pinch0.v) * tDist(e.touches) / pinch0.d)));
-        apply();
+        apply(); showBar();
       }
     }, { passive: true });
     view.addEventListener("touchend", (e) => { if (!e.touches.length) { p0 = null; pinch0 = null; } }, { passive: true });
-    wireDoubleTap(view, exitZoom);
+
+    // Double-tap exits zoom; a single tap on the image toggles the bar.
+    wireDoubleTap(view, exitZoom, () => {
+      if (bar.classList.contains("m-hidden")) showBar(); else hideBar();
+    });
+    showBar();   // visible on entry, then auto-hides
   }
 
   // ---- language toggle (bottom bar) → flips every mounted feed card -----
