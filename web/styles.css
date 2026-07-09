@@ -1433,7 +1433,7 @@ body.m-mode.m-zoom .m-home-fab { display: none !important; }
    thumb reach), fill rises from the bottom, tick at the 50 = normal mark,
    fades out when idle (.m-hidden). */
 .m-zoombar {
-  position: absolute; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom));
+  position: absolute; right: 16px; top: 56%; transform: translateY(-50%);
   width: 40px; height: 150px; touch-action: none;
   border-radius: 22px; transition: opacity .28s ease;
 }

@@ -2633,16 +2633,28 @@ const MOBILE_UI = (() => {
   const zScale = (v) => 0.25 * Math.pow(16, v / 100);          // 0→.25  50→1  100→4
   const zValue = (s) => 100 * Math.log(s / 0.25) / Math.log(16);
   function tDist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
-  // Robust double-tap (+ optional single-tap) detection. The old version only
-  // inspected touchEND positions, so it couldn't tell a real tap from the end
-  // of a scroll/pan swipe — on the scroll-snap feed that corrupted the state
-  // and double-taps only fired "randomly" after a few tries. Now each touch is
-  // tracked from touchSTART: a touch only counts as a tap if it was a single
-  // finger, barely moved, and was brief. Two such taps close in time/space =
-  // double-tap. A lone tap (when onSingle is given) fires after a short delay,
+  // Robust double-tap (+ optional single-tap) detection. Each touch is tracked
+  // from touchSTART: it only counts as a tap if it was a single finger, barely
+  // moved, and was reasonably brief. Two such taps close in time/space fire the
+  // double-tap; a lone tap (when onSingle is given) fires after a short delay
   // unless a second tap arrives first.
+  //
+  // Thresholds are tuned for REAL FINGERS, not a mouse. A physical "stationary"
+  // tap routinely jitters 15-25px and a deliberate press easily runs past
+  // 300ms — the earlier tight limits (12px / 300ms) silently rejected genuine
+  // taps, so double-tap only worked "sometimes" on-device while testing clean
+  // on desktop (0px, instant clicks). These looser limits still leave scrolls
+  // and pans (which move far more) and pinches (multi-touch) correctly excluded.
+  const DT_SLOP = 24;      // px a finger may drift and still be a "tap"
+  const DT_TAP_MS = 550;   // max press duration to count as a tap
+  const DT_GAP_MS = 450;   // max finger-OFF time between the two taps (release→next press)
+  const DT_NEAR = 60;      // max distance between the two taps
   function wireDoubleTap(elm, onDouble, onSingle) {
-    let lastTap = 0, lastX = 0, lastY = 0;
+    // lastEnd = timestamp the previous valid tap was RELEASED. The double-tap
+    // window is measured release→next-press (finger-off time), NOT end→end, so
+    // a slow/firm press on either tap doesn't blow the window — only how fast
+    // the finger comes back down matters.
+    let lastEnd = 0, lastX = 0, lastY = 0;
     let sx = 0, sy = 0, st = 0, moved = false, multi = false;
     let singleTimer = null;
     elm.addEventListener("touchstart", (e) => {
@@ -2652,22 +2664,23 @@ const MOBILE_UI = (() => {
     }, { passive: true });
     elm.addEventListener("touchmove", (e) => {
       const t = e.touches[0]; if (!t) return;
-      if (Math.hypot(t.clientX - sx, t.clientY - sy) > 12) moved = true;
+      if (Math.hypot(t.clientX - sx, t.clientY - sy) > DT_SLOP) moved = true;
     }, { passive: true });
     elm.addEventListener("touchend", (e) => {
       const t = e.changedTouches[0]; if (!t) return;
       // Not a clean tap (multi-touch, dragged, or long press) → reset, ignore.
-      if (multi || moved || Date.now() - st > 300) { lastTap = 0; return; }
-      const now = Date.now();
-      if (now - lastTap < 320 && Math.hypot(t.clientX - lastX, t.clientY - lastY) < 40) {
-        lastTap = 0;
+      if (multi || moved || Date.now() - st > DT_TAP_MS) { lastEnd = 0; return; }
+      // st = this tap's press time; lastEnd = previous tap's release time.
+      // (st - lastEnd) is therefore the finger-off gap between the two taps.
+      if (lastEnd && (st - lastEnd) < DT_GAP_MS && Math.hypot(t.clientX - lastX, t.clientY - lastY) < DT_NEAR) {
+        lastEnd = 0;
         if (singleTimer) { clearTimeout(singleTimer); singleTimer = null; }
         onDouble();
       } else {
-        lastTap = now; lastX = t.clientX; lastY = t.clientY;
+        lastEnd = Date.now(); lastX = t.clientX; lastY = t.clientY;
         if (onSingle) {
           if (singleTimer) clearTimeout(singleTimer);
-          singleTimer = setTimeout(() => { singleTimer = null; onSingle(); }, 330);
+          singleTimer = setTimeout(() => { singleTimer = null; onSingle(); }, DT_GAP_MS + 30);
         }
       }
     });
