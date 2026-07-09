@@ -2475,8 +2475,15 @@ const MOBILE_UI = (() => {
     <header class="m-top" id="m-top">
       <button class="m-back" id="m-back" aria-label="Back">‹</button>
       <div class="m-title" id="m-title">Samarpan Upnishad</div>
-      <button class="m-fav" id="m-fav" aria-label="Favorite" hidden>♡</button>
     </header>
+    <div class="m-vpanel" id="m-vpanel">
+      <span class="m-vdate" id="m-panel-date"></span>
+      <div class="m-vacts">
+        <button class="m-vact m-vact-fav" id="m-panel-fav" title="Add to Favorites" aria-label="Add to Favorites">${HEART_ICON}</button>
+        <button class="m-vact m-vact-share" id="m-panel-share" title="Share" aria-label="Share">${SHARE_ICON}</button>
+        <a class="m-vact m-vact-dl" id="m-panel-dl" title="Download image" aria-label="Download image">${DOWNLOAD_ICON}</a>
+      </div>
+    </div>
     <nav class="m-bottom" id="m-bottom">
       <button class="m-menu-btn" id="m-menu-btn">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
@@ -2598,16 +2605,15 @@ const MOBILE_UI = (() => {
   // ---- chrome state --------------------------------------------------------
   // mode: "home" (viewer, no back) | "viewer" (back + fav) | "page" (back + title)
   function setChrome(mode, title, entry) {
-    document.body.classList.toggle("m-viewing", mode === "home" || mode === "viewer");
+    const isImageScreen = mode === "home" || mode === "viewer";
+    document.body.classList.toggle("m-viewing", isImageScreen);
+    // Home/entry screens have no top bar at all now — the image goes full
+    // height and each card's own overlay row (date + favorite/share/download)
+    // takes its place. Every other page (Search, Settings, …) keeps the
+    // normal back/title bar since it has no image to sit on top of.
+    document.body.classList.toggle("m-notop", isImageScreen);
     $("m-back").style.visibility = mode === "home" ? "hidden" : "visible";
     $("m-title").textContent = title || "Samarpan Upnishad";
-    const fav = $("m-fav");
-    if (entry) {
-      fav.hidden = false;
-      const paint = () => { fav.textContent = store.isFav(entry.id) ? "♥" : "♡"; fav.classList.toggle("on", store.isFav(entry.id)); };
-      paint();
-      fav.onclick = () => { store.toggleFav(entry.id); paint(); };
-    } else { fav.hidden = true; fav.onclick = null; }
   }
 
   // ---- user display preferences (zoom bar / home button side) -----------
@@ -2783,7 +2789,7 @@ const MOBILE_UI = (() => {
     _stageId = e.id;
     store.setLastViewed(e.id);
     paintLang(prefLang);
-    const ctl = buildViewerCard(e);
+    const ctl = buildViewerCard(e, true);
     _feedCards = [ctl];
     const wrap = el(`<div class="m-singlewrap"></div>`);
     wrap.appendChild(ctl.root);
@@ -2836,23 +2842,56 @@ const MOBILE_UI = (() => {
     });
   }
 
-  // One reading card: header (date/day left in accent + share/download
-  // right, acting on whichever language is currently showing) + the flip
-  // image + extra pages. Returned as a controller so the language toggle can
-  // update every mounted card (older/current/newer) at once.
-  function buildViewerCard(e) {
+  // Fixed panel above the image (date/day left in accent + fav/share/download
+  // right) — ONE shared DOM node (injected with the rest of the chrome), not
+  // part of any card. Re-synced to whichever card is "current" every time a
+  // card claims it, via wireVPanel(). Kept out of the per-card markup so
+  // future tap-to-open-calendar wiring on the date has a single stable node
+  // to attach to, instead of 3 recycled copies in the scrolling feed.
+  function wireVPanel(e, curImg, curName, curCaption) {
+    $("m-panel-date").textContent = fmtDate(e.date) + (e.weekday ? " · " + e.weekday : "");
+
+    const fav = $("m-panel-fav");
+    fav.classList.toggle("on", store.isFav(e.id));
+    fav.onclick = () => { store.toggleFav(e.id); fav.classList.toggle("on", store.isFav(e.id)); };
+
+    $("m-panel-share").onclick = async () => {
+      const u = curImg(); if (!u) { toast("No image to share."); return; }
+      if (isNativeApp && window.Capacitor.Plugins.Share) {
+        try { await nativeShareImage(u, curName(), curCaption()); }
+        catch (err) { toast("Couldn't share: " + (err && err.message ? err.message : "please try again.")); }
+      } else {
+        shareImage(u, curName(), curCaption());
+      }
+    };
+
+    const dl = $("m-panel-dl");
+    const u = curImg();
+    if (u) { dl.href = u; dl.setAttribute("download", curName()); dl.classList.remove("m-vact-disabled"); }
+    else { dl.removeAttribute("href"); dl.classList.add("m-vact-disabled"); }
+    dl.onclick = async (ev) => {
+      if (!isNativeApp) return;   // desktop/browser: the plain <a download> handles it
+      ev.preventDefault();
+      const uu = curImg(); if (!uu) { toast("No image to save."); return; }
+      dl.classList.add("m-vact-disabled");
+      try { await nativeSaveToGallery(uu, curName()); toast("Saved to Gallery → " + GALLERY_ALBUM); }
+      catch (err) { toast("Couldn't save: " + (err && err.message ? err.message : "please try again.")); }
+      finally { dl.classList.remove("m-vact-disabled"); }
+    };
+  }
+
+  // One reading card: the flip image + extra pages. `isCurrent` marks the
+  // centered slide — only it drives the shared top panel (older/newer slides
+  // sit off-screen and get fully rebuilt via buildFeed() before they ever
+  // become current, so they never need to touch the panel). Returned as a
+  // controller so the language toggle can update every mounted card
+  // (older/current/newer) at once.
+  function buildViewerCard(e, isCurrent) {
     let lang = prefLang;
     if (lang === "hi" && !(e.img_hi_url || e.body_hi)) lang = "en";
     if (lang === "en" && !(e.img_en_url || e.body_en)) lang = "hi";
 
     const root = el(`<div class="m-viewer">
-      <div class="m-vhead">
-        <span class="m-vdate">${fmtDate(e.date)}${e.weekday ? " · " + e.weekday : ""}</span>
-        <div class="m-vacts">
-          <button class="m-vact m-vact-share" title="Share" aria-label="Share">${SHARE_ICON}</button>
-          <a class="m-vact m-vact-dl" title="Download image" aria-label="Download image">${DOWNLOAD_ICON}</a>
-        </div>
-      </div>
       <div class="m-flip"><div class="m-flip-inner">
         <div class="m-face m-front">${faceHtml(e, "hi")}</div>
         <div class="m-face m-back">${faceHtml(e, "en")}</div>
@@ -2866,15 +2905,6 @@ const MOBILE_UI = (() => {
       inner.style.transition = "none";
       requestAnimationFrame(() => { inner.style.transition = ""; });
     }
-
-    // Faces are absolutely positioned (3D flip), so the container's height is
-    // driven manually: always the height of the face currently shown.
-    const syncHeight = () => {
-      const face = root.querySelector(lang === "hi" ? ".m-front" : ".m-back");
-      if (face) flip.style.height = face.scrollHeight + "px";
-    };
-    root.querySelectorAll(".m-face img").forEach((im) => im.addEventListener("load", syncHeight));
-    setTimeout(syncHeight, 50);
 
     const extrasBox = root.querySelector(".m-extras");
     const renderExtras = () => {
@@ -2895,31 +2925,7 @@ const MOBILE_UI = (() => {
     const curCaption = () => shareCaption(
       lang === "hi" ? (e.topic_hi || e.topic_en) : (e.topic_en || e.topic_hi),
       lang === "hi" ? e.body_hi : e.body_en, "Baba Swami", e.date);
-    root.querySelector(".m-vact-share").addEventListener("click", async () => {
-      const u = curImg(); if (!u) { toast("No image to share."); return; }
-      if (isNativeApp && window.Capacitor.Plugins.Share) {
-        try { await nativeShareImage(u, curName(), curCaption()); }
-        catch (err) { toast("Couldn't share: " + (err && err.message ? err.message : "please try again.")); }
-      } else {
-        shareImage(u, curName(), curCaption());
-      }
-    });
-    const dl = root.querySelector(".m-vact-dl");
-    const refreshDl = () => {
-      const u = curImg();
-      if (u) { dl.href = u; dl.setAttribute("download", curName()); dl.classList.remove("m-vact-disabled"); }
-      else { dl.removeAttribute("href"); dl.classList.add("m-vact-disabled"); }
-    };
-    refreshDl();
-    dl.addEventListener("click", async (ev) => {
-      if (!isNativeApp) return;   // desktop/browser: the plain <a download> handles it
-      ev.preventDefault();
-      const u = curImg(); if (!u) { toast("No image to save."); return; }
-      dl.classList.add("m-vact-disabled");
-      try { await nativeSaveToGallery(u, curName()); toast("Saved to Gallery → " + GALLERY_ALBUM); }
-      catch (err) { toast("Couldn't save: " + (err && err.message ? err.message : "please try again.")); }
-      finally { dl.classList.remove("m-vact-disabled"); }
-    });
+    if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
 
     function setLang(l, animate) {
       if (l === lang) return;
@@ -2929,8 +2935,7 @@ const MOBILE_UI = (() => {
       flip.classList.toggle("flipped", lang === "en");
       if (!animate) requestAnimationFrame(() => { inner.style.transition = ""; });
       renderExtras();
-      refreshDl();
-      setTimeout(syncHeight, animate ? 720 : 80);
+      if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
     }
 
     return { root, setLang, entry: e };
@@ -2981,9 +2986,9 @@ const MOBILE_UI = (() => {
     if (_stageId !== centerEntry.id) return;   // superseded by a newer navigation mid-fetch
 
     paintLang(prefLang);
-    const oCtl = olderE ? buildViewerCard(olderE) : null;
-    const cCtl = buildViewerCard(centerEntry);
-    const nCtl = newerE ? buildViewerCard(newerE) : null;
+    const oCtl = olderE ? buildViewerCard(olderE, false) : null;
+    const cCtl = buildViewerCard(centerEntry, true);
+    const nCtl = newerE ? buildViewerCard(newerE, false) : null;
     _feedCards = [oCtl, cCtl, nCtl];
 
     const endMsg = listMode
