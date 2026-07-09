@@ -3058,7 +3058,7 @@ const MOBILE_UI = (() => {
   // preserveSearch check), per context (a plain search vs. the community
   // "pick a Guru's msg" picker).
   function freshSearchState() {
-    return { tab: "word", word: "", wordResultsHtml: "", dateStep: "years", dateYear: null, dateYm: null, numberValue: "" };
+    return { tab: "word", word: "", wordResultsHtml: "", numberValue: "" };
   }
   const _searchState = { plain: freshSearchState(), chat: freshSearchState() };
   function resetSearchState() { _searchState.plain = freshSearchState(); _searchState.chat = freshSearchState(); _activeList = null; }
@@ -3111,75 +3111,24 @@ const MOBILE_UI = (() => {
         if (!st.word) q.focus();
       },
       date() {
-        // Year → Month → that month's results (mirrors desktop's Browse by Date).
-        async function showYears() {
-          st.dateStep = "years"; st.dateYear = null; st.dateYm = null;
-          body.innerHTML = `<div class="loading">Loading…</div>`;
-          results.innerHTML = "";
-          try {
-            const d = await api("/api/browse?group=year");
-            const box = el(`<div class="m-yearchips"></div>`);
-            d.periods.forEach((p) => {
-              const c = el(`<button class="chip-btn">${p.period} · ${p.count}</button>`);
-              c.addEventListener("click", showMonths.bind(null, p.period));
-              box.appendChild(c);
-            });
-            body.replaceChildren(box);
-          } catch (err) { body.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
-        }
-        async function showMonths(year) {
-          st.dateStep = "months"; st.dateYear = year; st.dateYm = null;
-          body.innerHTML = `<div class="loading">Loading…</div>`;
-          results.innerHTML = "";
-          try {
-            const d = await api("/api/browse?group=month");
-            const box = el(`<div class="m-yearchips"></div>`);
-            d.periods.filter((p) => p.period.startsWith(year + "-")).forEach((p) => {
-              const c = el(`<button class="chip-btn">${periodLabel("month", p.period)} · ${p.count}</button>`);
-              c.addEventListener("click", showMonthResults.bind(null, p.period));
-              box.appendChild(c);
-            });
-            const back = el(`<button class="m-backlink">‹ Years</button>`);
-            back.addEventListener("click", showYears);
-            body.replaceChildren(back, box);
-          } catch (err) { body.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
-        }
-        async function showMonthResults(ym) {
-          st.dateStep = "results"; st.dateYm = ym;
-          const [yStr, mStr] = ym.split("-");
-          const y = parseInt(yStr, 10), m = parseInt(mStr, 10);
-          const back = el(`<button class="m-backlink">‹ ${y}</button>`);
-          back.addEventListener("click", showMonths.bind(null, yStr));
-          body.replaceChildren(back);
+        // Tap the field → the phone's own calendar opens. Picking a date shows
+        // just that one message (no scrolling to other days), same as Lucky
+        // Msg / Number lookup — unless more than one entry shares that date,
+        // in which case they're listed.
+        body.innerHTML = `<div class="m-inputrow"><input type="date" id="m-d"></div>
+          <div class="m-hint">Pick a day to see its Guru's msg.</div>`;
+        body.querySelector("#m-d").addEventListener("change", async (ev) => {
+          const iso = ev.target.value; if (!iso) return;
           results.innerHTML = `<div class="loading">Loading…</div>`;
           try {
-            const d = await api(`/api/browse?year=${y}&month=${m}`);
-            const byDay = {};
-            d.results.forEach((r) => { byDay[parseInt(r.date.split("-")[2], 10)] = r.id; });
-            const totalDays = new Date(y, m, 0).getDate();
-            const startDow = new Date(y, m - 1, 1).getDay();   // 0 = Sunday
-            const cal = el(`<div class="m-cal">
-              <div class="m-cal-head">${periodLabel("month", ym)}</div>
-              <div class="m-cal-dow">${["S", "M", "T", "W", "T", "F", "S"].map((x) => `<span>${x}</span>`).join("")}</div>
-              <div class="m-cal-grid"></div>
-            </div>`);
-            const grid = cal.querySelector(".m-cal-grid");
-            for (let i = 0; i < startDow; i++) grid.appendChild(el(`<span class="m-cal-cell m-cal-blank"></span>`));
-            for (let day = 1; day <= totalDays; day++) {
-              const id = byDay[day];
-              const cell = el(`<button class="m-cal-cell${id ? " has-msg" : ""}"${id ? "" : " disabled"}>${day}</button>`);
-              // Picking a date shows just that one message — no scrolling to
-              // other days, same as Lucky Msg / Number lookup.
-              if (id) cell.addEventListener("click", () => go(forChat ? hrefFor(id) : "#/entry/" + id + "?single=1"));
-              grid.appendChild(cell);
+            const d = await api("/api/browse?date=" + encodeURIComponent(iso));
+            if (d.results.length === 1) {
+              go(forChat ? hrefFor(d.results[0].id) : "#/entry/" + d.results[0].id + "?single=1");
+              return;
             }
-            results.replaceChildren(cal);
-           
+            showResults(results, d.results, "Guru's msg was not shared on this day.", hrefFor, !forChat);
           } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
-        }
-        if (st.dateStep === "results" && st.dateYm) showMonthResults(st.dateYm);
-        else if (st.dateStep === "months" && st.dateYear) showMonths(st.dateYear);
-        else showYears();
+        });
       },
       number() {
         body.innerHTML = `<div class="m-inputrow">
