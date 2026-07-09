@@ -26,13 +26,13 @@ function highlight(text, q) {
   } catch { return esc; }
 }
 function fmtDate(iso) { if (!iso) return ""; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; }
-// "10th July 2026" — ordinal day + full month + year (used in share subjects).
+// "9th July, 2026" — ordinal day + full month + comma + year (share subjects).
 function ordinalSuffix(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return s[(v - 20) % 10] || s[v] || s[0]; }
 function fmtDateShare(iso) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);
   const mon = new Date(y, m - 1, d).toLocaleString("en", { month: "long" });
-  return `${d}${ordinalSuffix(d)} ${mon} ${y}`;
+  return `${d}${ordinalSuffix(d)} ${mon}, ${y}`;
 }
 function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 // Thumbnail <img> (lazy-loaded + async-decoded) or an empty placeholder box.
@@ -3002,8 +3002,8 @@ const MOBILE_UI = (() => {
     // Share / Download act on whichever language image is visible now.
     const curImg = () => (lang === "hi" ? e.img_hi_url : e.img_en_url);
     const curName = () => `${e.id}_${lang === "hi" ? "Hin" : "Eng"}.jpg`;
-    // Share subject/caption = one clean line, e.g. "Guru's Daily msg, 10th July 2026".
-    const curCaption = () => `Guru's Daily msg, ${fmtDateShare(e.date)}`;
+    // Share subject/caption = one clean line, e.g. "Guru's Daily msg - 9th July, 2026".
+    const curCaption = () => `Guru's Daily msg - ${fmtDateShare(e.date)}`;
     if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
 
     function setLang(l, animate) {
