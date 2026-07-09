@@ -2485,22 +2485,20 @@ const MOBILE_UI = (() => {
       </div>
     </div>
     <nav class="m-bottom" id="m-bottom">
-      <button class="m-menu-btn" id="m-menu-btn">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-        <span>Menu</span>
+      <button class="m-navbtn m-menu-btn" id="m-menu-btn" title="Menu" aria-label="Menu">
+        <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
-      <button class="m-menu-btn m-comm-btn" id="m-comm-btn">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        <span>Community</span>
+      <button class="m-navbtn m-comm-btn" id="m-comm-btn" title="Community" aria-label="Community">
+        <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
+      <button class="m-navbtn m-home-btn" id="m-home-btn" title="Latest Guru's msg" aria-label="Latest Guru's msg">
+        <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>
       </button>
       <div class="m-langseg" id="m-langseg" role="group" aria-label="Language">
         <button data-lang="hi" class="active">हिंदी</button>
         <button data-lang="en">English</button>
       </div>
     </nav>
-    <button class="m-home-fab" id="m-home-fab" title="Latest Guru's msg" aria-label="Latest Guru's msg">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/></svg>
-    </button>
     <div class="m-scrim" id="m-scrim" hidden></div>
     <aside class="m-drawer" id="m-drawer" aria-label="Menu">
       <a class="m-account" id="m-account-row" href="#/m/account"></a>
@@ -2571,7 +2569,7 @@ const MOBILE_UI = (() => {
   });
   $("m-menu-btn").addEventListener("click", openDrawer);
   $("m-comm-btn").addEventListener("click", () => go("#/m/community"));
-  $("m-home-fab").addEventListener("click", () => go("#/?latest=1"));
+  $("m-home-btn").addEventListener("click", () => go("#/?latest=1"));
   $("m-scrim").addEventListener("click", closeDrawer);
   $("m-drawer").addEventListener("click", (e) => { if (e.target.closest("a")) closeDrawer(); });
   $("m-back").addEventListener("click", () => history.back());
@@ -2616,13 +2614,9 @@ const MOBILE_UI = (() => {
     $("m-title").textContent = title || "Samarpan Upnishad";
   }
 
-  // ---- user display preferences (zoom bar / home button side) -----------
+  // ---- user display preferences (zoom bar side) -----------
   function pref(k, d) { try { return localStorage.getItem(k) || d; } catch { return d; } }
   function setPref(k, v) { try { localStorage.setItem(k, v); } catch {} }
-  function applyHomeSide() {
-    $("m-home-fab").classList.toggle("m-left", pref("wa:mobile:homeSide", "right") === "left");
-  }
-  applyHomeSide();
 
   // ---- zoom mode (double-tap the image) ----------------------------------
   // Full-screen dark viewer with a vertical zoom bar on the chosen edge:
@@ -3442,19 +3436,15 @@ const MOBILE_UI = (() => {
         <h3 style="margin-top:0">Display</h3>
         <label class="m-switchrow">Zoom bar on left side
           <span class="m-switch"><input type="checkbox" id="m-zb-side"><i></i></span></label>
-        <label class="m-switchrow">Home button on left side
-          <span class="m-switch"><input type="checkbox" id="m-home-side"><i></i></span></label>
         <label class="m-switchrow">Tick sound when scrolling to another day
           <span class="m-switch"><input type="checkbox" id="m-tick-sound"><i></i></span></label>
         <div class="m-hint">Double-tap a Guru's msg image to open zoom. Off = right side (default).</div>
       </div>`);
       prose.appendChild(box);
-      const zb = box.querySelector("#m-zb-side"), hb = box.querySelector("#m-home-side"), ts = box.querySelector("#m-tick-sound");
+      const zb = box.querySelector("#m-zb-side"), ts = box.querySelector("#m-tick-sound");
       zb.checked = pref("wa:mobile:zoomBarSide", "right") === "left";
-      hb.checked = pref("wa:mobile:homeSide", "right") === "left";
       ts.checked = tickEnabled();
       zb.addEventListener("change", () => setPref("wa:mobile:zoomBarSide", zb.checked ? "left" : "right"));
-      hb.addEventListener("change", () => { setPref("wa:mobile:homeSide", hb.checked ? "left" : "right"); applyHomeSide(); });
       ts.addEventListener("change", () => setPref("wa:mobile:tickSound", ts.checked ? "1" : "0"));
     },
   };
