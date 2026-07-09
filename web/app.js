@@ -189,7 +189,13 @@ function setActiveNav(route) { document.querySelectorAll("#nav a").forEach((a) =
 let toastT;
 function toast(msg) {
   let t = document.getElementById("wa-toast");
-  if (!t) { t = document.createElement("div"); t.id = "wa-toast"; t.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2c2a33;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;z-index:100;opacity:0;transition:opacity .2s;box-shadow:0 6px 24px rgba(0,0,0,.2)"; document.body.appendChild(t); }
+  if (!t) { t = document.createElement("div"); t.id = "wa-toast"; t.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);background:#2c2a33;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;box-shadow:0 6px 24px rgba(0,0,0,.2);max-width:86%;text-align:center"; document.body.appendChild(t); }
+  // Mobile app: show it just BELOW the fixed top panel (52px) so it's clearly
+  // visible near the share/download buttons, not hidden behind the bottom bar.
+  // Desktop: keep the original bottom-centre position.
+  const mobile = document.body.classList.contains("m-mode");
+  if (mobile) { t.style.top = "calc(60px + env(safe-area-inset-top))"; t.style.bottom = "auto"; t.style.zIndex = "620"; }
+  else { t.style.bottom = "24px"; t.style.top = "auto"; t.style.zIndex = "100"; }
   t.textContent = msg; t.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(() => (t.style.opacity = "0"), 1800);
 }
 // Full-screen image viewer with click/scroll zoom + drag-to-pan.
