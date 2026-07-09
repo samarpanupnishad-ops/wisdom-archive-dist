@@ -1161,7 +1161,7 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 @keyframes mfade { from { opacity: 0; } }
 .m-drawer {
   position: fixed; top: 0; bottom: 0; left: 0; z-index: 710;
-  width: 50%;
+  width: 56%;
   background: var(--surface); box-shadow: 6px 0 30px rgba(40, 30, 60, .2);
   transform: translateX(-105%); transition: transform .25s ease;
   overflow-y: auto; padding: calc(10px + env(safe-area-inset-top)) 0 20px;

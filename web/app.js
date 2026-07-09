@@ -26,6 +26,14 @@ function highlight(text, q) {
   } catch { return esc; }
 }
 function fmtDate(iso) { if (!iso) return ""; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; }
+// "10th July 2026" — ordinal day + full month + year (used in share subjects).
+function ordinalSuffix(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return s[(v - 20) % 10] || s[v] || s[0]; }
+function fmtDateShare(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const mon = new Date(y, m - 1, d).toLocaleString("en", { month: "long" });
+  return `${d}${ordinalSuffix(d)} ${mon} ${y}`;
+}
 function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; }
 // Thumbnail <img> (lazy-loaded + async-decoded) or an empty placeholder box.
 function thumbImg(e) { return e && e.thumb_url ? `<img class="thumb" src="${e.thumb_url}" alt="" loading="lazy" decoding="async">` : `<div class="thumb"></div>`; }
@@ -2895,7 +2903,9 @@ const MOBILE_UI = (() => {
     const path = "wa-share/" + filename;
     await P.Filesystem.writeFile({ path, directory: "CACHE", data: dataUri.split(",")[1], recursive: true });
     const { uri } = await P.Filesystem.getUri({ path, directory: "CACHE" });
-    await P.Share.share({ title: "Samarpan Upnishad", text, files: [uri], dialogTitle: "Share" });
+    // title doubles as the e-mail SUBJECT on mail targets; text is the caption
+    // most chat apps show. Use the same line for both.
+    await P.Share.share({ title: text, text, files: [uri], dialogTitle: "Share" });
   }
   const GALLERY_ALBUM = "Samarpan Upnishad";
   async function ensureGalleryAlbum() {
@@ -2992,9 +3002,8 @@ const MOBILE_UI = (() => {
     // Share / Download act on whichever language image is visible now.
     const curImg = () => (lang === "hi" ? e.img_hi_url : e.img_en_url);
     const curName = () => `${e.id}_${lang === "hi" ? "Hin" : "Eng"}.jpg`;
-    const curCaption = () => shareCaption(
-      lang === "hi" ? (e.topic_hi || e.topic_en) : (e.topic_en || e.topic_hi),
-      lang === "hi" ? e.body_hi : e.body_en, "Baba Swami", e.date);
+    // Share subject/caption = one clean line, e.g. "Guru's Daily msg, 10th July 2026".
+    const curCaption = () => `Guru's Daily msg, ${fmtDateShare(e.date)}`;
     if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
 
     function setLang(l, animate) {
