@@ -3111,21 +3111,54 @@ const MOBILE_UI = (() => {
         if (!st.word) q.focus();
       },
       date() {
-        // Tap the field → the phone's own calendar opens. Picking a date shows
-        // just that one message (no scrolling to other days), same as Lucky
-        // Msg / Number lookup — unless more than one entry shares that date,
-        // in which case they're listed.
-        body.innerHTML = `<div class="m-inputrow"><input type="date" id="m-d"></div>
+        // Android's own calendar has no "jump to month" shortcut (only a year
+        // list) — these two dropdowns fill that gap: pick Year then Month,
+        // and the NATIVE calendar opens already showing that month, so the
+        // actual day is still picked on the real OS picker. Tapping the date
+        // field directly (skipping the dropdowns) still works as before.
+        body.innerHTML = `
+          <div class="m-inputrow m-daterow">
+            <select id="m-year"><option value="">Year</option></select>
+            <select id="m-month" disabled><option value="">Month</option></select>
+          </div>
+          <div class="m-inputrow"><input type="date" id="m-d"></div>
           <div class="m-hint">Pick a day to see its Guru's msg.</div>`;
-        body.querySelector("#m-d").addEventListener("change", async (ev) => {
+        const yearSel = body.querySelector("#m-year");
+        const monthSel = body.querySelector("#m-month");
+        const dateInput = body.querySelector("#m-d");
+
+        api("/api/browse?group=year").then((d) => {
+          d.periods.forEach((p) => yearSel.appendChild(el(`<option value="${p.period}">${p.period} · ${p.count}</option>`)));
+        }).catch(() => {});
+
+        yearSel.addEventListener("change", async () => {
+          const year = yearSel.value;
+          monthSel.innerHTML = `<option value="">Month</option>`;
+          monthSel.disabled = true;
+          if (!year) return;
+          try {
+            const d = await api("/api/browse?group=month");
+            d.periods.filter((p) => p.period.startsWith(year + "-")).forEach((p) => {
+              monthSel.appendChild(el(`<option value="${p.period}">${periodLabel("month", p.period)} · ${p.count}</option>`));
+            });
+            monthSel.disabled = false;
+          } catch {}
+        });
+
+        monthSel.addEventListener("change", () => {
+          const ym = monthSel.value; if (!ym) return;
+          dateInput.value = ym + "-01";
+          // Opens the native calendar pre-set to that month; older WebViews
+          // without showPicker() just leave the field ready to tap manually.
+          if (dateInput.showPicker) { try { dateInput.showPicker(); } catch {} }
+        });
+
+        dateInput.addEventListener("change", async (ev) => {
           const iso = ev.target.value; if (!iso) return;
           results.innerHTML = `<div class="loading">Loading…</div>`;
           try {
             const d = await api("/api/browse?date=" + encodeURIComponent(iso));
-            if (d.results.length === 1) {
-              go(forChat ? hrefFor(d.results[0].id) : "#/entry/" + d.results[0].id + "?single=1");
-              return;
-            }
+            if (d.results.length === 1) { go(hrefFor(d.results[0].id)); return; }
             showResults(results, d.results, "Guru's msg was not shared on this day.", hrefFor, !forChat);
           } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
         });
@@ -3137,11 +3170,8 @@ const MOBILE_UI = (() => {
         const n = body.querySelector("#m-n");
         n.value = st.numberValue;
         n.addEventListener("input", () => { st.numberValue = n.value; });
-        // A typed-in number is a direct lookup for one specific message —
-        // open it standalone (no scrolling away to other days).
         const goN = () => {
-          const v = n.value.trim(); if (!v) return;
-          go(forChat ? hrefFor(encodeURIComponent(v)) : "#/entry/" + encodeURIComponent(v) + "?single=1");
+          const v = n.value.trim(); if (v) go(hrefFor(encodeURIComponent(v)));
         };
         body.querySelector("#m-n-go").addEventListener("click", goN);
         n.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); goN(); } });

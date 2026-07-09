@@ -1263,6 +1263,12 @@ body.m-mode .content:has(.m-page-scroll) { min-height: 0; }
   flex: 1; min-width: 0; padding: 12px 14px; font: 15px var(--sans);
   border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text);
 }
+.m-daterow { margin-bottom: 10px; }
+.m-inputrow select {
+  flex: 1; min-width: 0; padding: 12px 10px; font: 15px var(--sans);
+  border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text);
+}
+.m-inputrow select:disabled { opacity: .5; }
 .m-inputcol { display: flex; flex-direction: column; gap: 10px; }
 .m-inputcol textarea {
   width: 100%; padding: 12px 14px; font: 15px var(--sans); resize: vertical;
