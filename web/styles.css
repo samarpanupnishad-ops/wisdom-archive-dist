@@ -1211,6 +1211,11 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
   height: 100%; scroll-snap-align: start; scroll-snap-stop: always;
   display: flex; overflow-y: auto; overflow-anchor: none;
 }
+/* Scrollbar hiding (decided 8.45) — DELETE THIS BLOCK to restore the scroll
+   indicators in the reading feed. Purely cosmetic: scrolling, snapping and
+   the extras-pages scroll all behave identically without the painted bars. */
+.m-feed, .m-feedslide, .m-singlewrap { scrollbar-width: none; }
+.m-feed::-webkit-scrollbar, .m-feedslide::-webkit-scrollbar, .m-singlewrap::-webkit-scrollbar { display: none; }
 .m-feedend {
   margin: auto; text-align: center; color: var(--muted); font: 500 15px var(--sans);
   padding: 40px 20px;

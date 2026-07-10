@@ -187,15 +187,20 @@ function setActiveNav(route) { document.querySelectorAll("#nav a").forEach((a) =
 // Toast + read-more
 // --------------------------------------------------------------------------
 let toastT;
-function toast(msg) {
+function toast(msg, opts) {
   let t = document.getElementById("wa-toast");
-  if (!t) { t = document.createElement("div"); t.id = "wa-toast"; t.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);background:#2c2a33;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;box-shadow:0 6px 24px rgba(0,0,0,.2);max-width:86%;text-align:center"; document.body.appendChild(t); }
-  // Mobile app: show it just BELOW the fixed top panel (52px) so it's clearly
-  // visible near the share/download buttons, not hidden behind the bottom bar.
-  // Desktop: keep the original bottom-centre position.
+  if (!t) { t = document.createElement("div"); t.id = "wa-toast"; t.style.cssText = "position:fixed;left:50%;padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;box-shadow:0 6px 24px rgba(0,0,0,.2);max-width:86%;text-align:center"; document.body.appendChild(t); }
+  // Variants (the element is a reused singleton — reset every style each call):
+  // - red edge-toast (opts.red): red box/white text, centred 30% below the
+  //   screen middle (feed-boundary notices, e.g. "Guru's latest msg reached").
+  // - mobile default: just BELOW the fixed top panel, near the share/download
+  //   buttons it reports on. Desktop: original bottom-centre position.
   const mobile = document.body.classList.contains("m-mode");
-  if (mobile) { t.style.top = "calc(60px + env(safe-area-inset-top))"; t.style.bottom = "auto"; t.style.zIndex = "620"; }
-  else { t.style.bottom = "24px"; t.style.top = "auto"; t.style.zIndex = "100"; }
+  t.style.background = opts && opts.red ? "#d32f2f" : "#2c2a33";
+  t.style.color = "#fff";
+  if (opts && opts.red) { t.style.top = "80%"; t.style.bottom = "auto"; t.style.transform = "translate(-50%,-50%)"; t.style.zIndex = "620"; }
+  else if (mobile) { t.style.top = "calc(60px + env(safe-area-inset-top))"; t.style.bottom = "auto"; t.style.transform = "translateX(-50%)"; t.style.zIndex = "620"; }
+  else { t.style.bottom = "24px"; t.style.top = "auto"; t.style.transform = "translateX(-50%)"; t.style.zIndex = "100"; }
   t.textContent = msg; t.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(() => (t.style.opacity = "0"), 1800);
 }
 // Full-screen image viewer with click/scroll zoom + drag-to-pan.
@@ -3134,7 +3139,13 @@ const MOBILE_UI = (() => {
       if (idx === 1) return;   // still centered — nothing to do
       if (idx <= 0 && olderE) { _feedSettling = true; playTick(); buildFeed(olderE, isHome); }
       else if (idx >= 2 && newerE) { _feedSettling = true; playTick(); buildFeed(newerE, isHome); }
-      else { feed.scrollTop = h; }   // no entry that direction — snap back to center
+      else {
+        // No entry that direction — snap back to center. Trying to scroll past
+        // the NEWEST archive entry also gets the red edge-toast (list mode
+        // keeps its own in-feed end message; this wording would be wrong there).
+        if (idx >= 2 && !listMode) toast("Guru's latest msg reached", { red: true });
+        feed.scrollTop = h;
+      }
     };
     let settleTimer = null;
     feed.addEventListener("scrollend", onSettle);
