@@ -2660,6 +2660,17 @@ const MOBILE_UI = (() => {
   const DT_TAP_MS = 550;   // max press duration to count as a tap
   const DT_GAP_MS = 450;   // max finger-OFF time between the two taps (release→next press)
   const DT_NEAR = 60;      // max distance between the two taps
+  // After a touch double-tap, Android WebView synthesizes a native `dblclick`
+  // hit-tested at the finger's position — which lands on whatever is topmost
+  // AT THAT MOMENT. So opening zoom got instantly closed (the ghost dblclick
+  // hit the just-mounted overlay) and closing zoom got instantly reopened (it
+  // hit the image underneath). Defence 1: preventDefault() on the confirming
+  // touchend stops the browser synthesizing mouse events from those touches.
+  // Defence 2 (belt-and-braces for WebViews that synthesize anyway): stamp
+  // every touchend globally, and ignore any dblclick within 800ms of a touch —
+  // real mouse double-clicks (desktop, no touches) still pass.
+  let _lastTouchTs = 0;
+  document.addEventListener("touchend", () => { _lastTouchTs = Date.now(); }, { capture: true, passive: true });
   function wireDoubleTap(elm, onDouble, onSingle) {
     // lastEnd = timestamp the previous valid tap was RELEASED. The double-tap
     // window is measured release→next-press (finger-off time), NOT end→end, so
@@ -2686,6 +2697,7 @@ const MOBILE_UI = (() => {
       if (lastEnd && (st - lastEnd) < DT_GAP_MS && Math.hypot(t.clientX - lastX, t.clientY - lastY) < DT_NEAR) {
         lastEnd = 0;
         if (singleTimer) { clearTimeout(singleTimer); singleTimer = null; }
+        if (e.cancelable) e.preventDefault();   // no synthesized click/dblclick from this gesture
         onDouble();
       } else {
         lastEnd = Date.now(); lastX = t.clientX; lastY = t.clientY;
@@ -2695,7 +2707,9 @@ const MOBILE_UI = (() => {
         }
       }
     });
-    elm.addEventListener("dblclick", onDouble);   // desktop/browser test mode
+    // Desktop/browser test mode only — a dblclick right after touch activity is
+    // the WebView's synthesized ghost (see above), not a real mouse gesture.
+    elm.addEventListener("dblclick", () => { if (Date.now() - _lastTouchTs < 800) return; onDouble(); });
   }
   function exitZoom() {
     if (!zoomWrap) return false;
