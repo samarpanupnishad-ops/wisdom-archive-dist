@@ -192,13 +192,14 @@ function toast(msg, opts) {
   if (!t) { t = document.createElement("div"); t.id = "wa-toast"; t.style.cssText = "position:fixed;left:50%;padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;box-shadow:0 6px 24px rgba(0,0,0,.2);max-width:86%;text-align:center"; document.body.appendChild(t); }
   // Variants (the element is a reused singleton — reset every style each call):
   // - red edge-toast (opts.red): red box/white text, centred 30% below the
-  //   screen middle (feed-boundary notices, e.g. "Guru's latest msg reached").
+  //   screen middle (pos "down", pushing past the newest) or 30% above it
+  //   (pos "up", pushing past the first/start).
   // - mobile default: just BELOW the fixed top panel, near the share/download
   //   buttons it reports on. Desktop: original bottom-centre position.
   const mobile = document.body.classList.contains("m-mode");
   t.style.background = opts && opts.red ? "#d32f2f" : "#2c2a33";
   t.style.color = "#fff";
-  if (opts && opts.red) { t.style.top = "80%"; t.style.bottom = "auto"; t.style.transform = "translate(-50%,-50%)"; t.style.zIndex = "620"; }
+  if (opts && opts.red) { t.style.top = opts.pos === "up" ? "20%" : "80%"; t.style.bottom = "auto"; t.style.transform = "translate(-50%,-50%)"; t.style.zIndex = "620"; }
   else if (mobile) { t.style.top = "calc(60px + env(safe-area-inset-top))"; t.style.bottom = "auto"; t.style.transform = "translateX(-50%)"; t.style.zIndex = "620"; }
   else { t.style.bottom = "24px"; t.style.top = "auto"; t.style.transform = "translateX(-50%)"; t.style.zIndex = "100"; }
   t.textContent = msg; t.style.opacity = "1"; clearTimeout(toastT); toastT = setTimeout(() => (t.style.opacity = "0"), 1800);
@@ -3068,9 +3069,9 @@ const MOBILE_UI = (() => {
     return { root, setLang, entry: e };
   }
 
-  function feedSlideEl(ctl, kind, endMsg) {
+  function feedSlideEl(ctl, kind) {
     const slide = el(`<div class="m-feedslide" data-kind="${kind}"></div>`);
-    slide.appendChild(ctl ? ctl.root : el(`<div class="m-feedend">🕉️<br>${endMsg || ""}</div>`));
+    slide.appendChild(ctl.root);
     return slide;
   }
 
@@ -3118,39 +3119,66 @@ const MOBILE_UI = (() => {
     const nCtl = newerE ? buildViewerCard(newerE, false) : null;
     _feedCards = [oCtl, cCtl, nCtl];
 
-    const endMsg = listMode
-      ? { older: "You've reached the beginning of this list.", newer: "You've reached the end of this list." }
-      : { older: "You've reached the earliest Guru's msg.", newer: "You've reached the latest Guru's msg." };
+    // Slides exist only for REAL entries — no end-pages. At a boundary the
+    // feed simply has nothing to scroll to; the "you're at the edge" feedback
+    // is a red toast fired from the swipe attempt itself (below).
     const feed = el(`<div class="m-feed"></div>`);
-    feed.appendChild(feedSlideEl(oCtl, "older", endMsg.older));
+    if (oCtl) feed.appendChild(feedSlideEl(oCtl, "older"));
     feed.appendChild(feedSlideEl(cCtl, "current"));
-    feed.appendChild(feedSlideEl(nCtl, "newer", endMsg.newer));
+    if (nCtl) feed.appendChild(feedSlideEl(nCtl, "newer"));
+    const centerIdx = oCtl ? 1 : 0;   // which slide is the current entry
     $view.replaceChildren(feed);
-    feed.scrollTop = feed.clientHeight;   // land on the middle slide, no animation
+    feed.scrollTop = centerIdx * feed.clientHeight;   // land on the current slide, no animation
     // Belt-and-braces re-center once the async image loads (which resize the
     // off-screen slides) have had a moment to settle.
-    setTimeout(() => { if (_stageId === centerEntry.id) feed.scrollTop = feed.clientHeight; }, 120);
+    setTimeout(() => { if (_stageId === centerEntry.id) feed.scrollTop = centerIdx * feed.clientHeight; }, 120);
     _feedSettling = false;
 
     const onSettle = () => {
       if (_feedSettling || _stageId !== centerEntry.id) return;
       const h = feed.clientHeight;
       const idx = Math.round(feed.scrollTop / h);
-      if (idx === 1) return;   // still centered — nothing to do
-      if (idx <= 0 && olderE) { _feedSettling = true; playTick(); buildFeed(olderE, isHome); }
-      else if (idx >= 2 && newerE) { _feedSettling = true; playTick(); buildFeed(newerE, isHome); }
-      else {
-        // No entry that direction — snap back to center. Trying to scroll past
-        // the NEWEST archive entry also gets the red edge-toast (list mode
-        // keeps its own in-feed end message; this wording would be wrong there).
-        if (idx >= 2 && !listMode) toast("Guru's latest msg reached", { red: true });
-        feed.scrollTop = h;
-      }
+      if (idx === centerIdx) return;   // still centered — nothing to do
+      if (idx < centerIdx && olderE) { _feedSettling = true; playTick(); buildFeed(olderE, isHome); }
+      else if (idx > centerIdx && newerE) { _feedSettling = true; playTick(); buildFeed(newerE, isHome); }
+      else { feed.scrollTop = centerIdx * h; }   // defensive — no slide exists that way
     };
     let settleTimer = null;
     feed.addEventListener("scrollend", onSettle);
     // Fallback for WebViews without the 'scrollend' event: settle-by-debounce.
     feed.addEventListener("scroll", () => { clearTimeout(settleTimer); settleTimer = setTimeout(onSettle, 130); }, { passive: true });
+
+    // Edge-attempt toasts: with no end-pages the feed can't move past a
+    // boundary, so detect the ATTEMPT from the gesture — finger direction at
+    // an edge with no entry that way. Position follows the direction: pushing
+    // past the newest → low on screen; past the first/start → high.
+    const atTop = () => feed.scrollTop <= 2;
+    const atBottom = () => feed.scrollTop >= feed.scrollHeight - feed.clientHeight - 2;
+    const edgeToast = (dir) => {   // dir: "newer" | "older" → true if toast shown
+      if (dir === "newer" && !newerE && atBottom()) {
+        toast(listMode ? "End of list reached" : "Guru's latest msg reached", { red: true, pos: "down" });
+        return true;
+      }
+      if (dir === "older" && !olderE && atTop()) {
+        toast(listMode ? "Start of list reached" : "Guru's first msg reached", { red: true, pos: "up" });
+        return true;
+      }
+      return false;
+    };
+    let touchY = null, edgeToasted = false;
+    feed.addEventListener("touchstart", (ev) => { touchY = ev.touches[0].clientY; edgeToasted = false; }, { passive: true });
+    feed.addEventListener("touchmove", (ev) => {
+      if (touchY === null || edgeToasted) return;
+      const dy = ev.touches[0].clientY - touchY;
+      if (dy < -26) edgeToasted = edgeToast("newer");        // finger up → wants newer
+      else if (dy > 26) edgeToasted = edgeToast("older");    // finger down → wants older
+    }, { passive: true });
+    let wheelCool = 0;
+    feed.addEventListener("wheel", (ev) => {                 // desktop/browser test mode
+      const now = Date.now();
+      if (now - wheelCool < 900) return;
+      if ((ev.deltaY > 0 && edgeToast("newer")) || (ev.deltaY < 0 && edgeToast("older"))) wheelCool = now;
+    }, { passive: true });
   }
 
   // ---- generic page frame --------------------------------------------------

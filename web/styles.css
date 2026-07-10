@@ -1078,7 +1078,7 @@ body.m-mode .content {
   max-width: 100%;
   min-height: 100vh;
 }
-body.m-mode.m-viewing .content { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+body.m-mode.m-viewing .content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 /* Home/entry screens: the title bar (.m-top) is swapped for the slimmer
    .m-vpanel (date left + fav/share/download right) below — still a real
    layout bar, not an overlay on the image, so the top inset here matches
@@ -1196,9 +1196,9 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
    older (a tick sound plays), swiping up reveals newer — Reels/Shorts
    convention. Each slide is a full-screen .m-viewer card. */
 .m-feed {
-  /* .m-vpanel (see above) takes the top inset instead of .m-top, plus the
-     bottom bar's clearance. No positioned ancestor required. */
-  height: calc(100vh - (52px + env(safe-area-inset-top)) - 84px - env(safe-area-inset-bottom));
+  /* .m-vpanel (see above) takes the top inset instead of .m-top; 64px is the
+     bottom bar's exact height — the image sits FLUSH against it, no gap. */
+  height: calc(100vh - (52px + env(safe-area-inset-top)) - 64px - env(safe-area-inset-bottom));
   overflow-y: scroll; scroll-snap-type: y mandatory;
   -webkit-overflow-scrolling: touch;
   /* The off-screen older/newer slides' heights settle asynchronously as their
@@ -1216,10 +1216,6 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
    the extras-pages scroll all behave identically without the painted bars. */
 .m-feed, .m-feedslide, .m-singlewrap { scrollbar-width: none; }
 .m-feed::-webkit-scrollbar, .m-feedslide::-webkit-scrollbar, .m-singlewrap::-webkit-scrollbar { display: none; }
-.m-feedend {
-  margin: auto; text-align: center; color: var(--muted); font: 500 15px var(--sans);
-  padding: 40px 20px;
-}
 
 /* ---- reading card (one slide's content), full-bleed, + book flip ---- */
 .m-viewer { position: relative; width: 100%; height: 100%; }
@@ -1275,7 +1271,7 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 /* Standalone single-message view (Lucky Msg / a typed-in number) — same
    sizing as one feed slide, just without the vertical scroll/siblings. */
 .m-singlewrap {
-  height: calc(100vh - (52px + env(safe-area-inset-top)) - 84px - env(safe-area-inset-bottom));
+  height: calc(100vh - (52px + env(safe-area-inset-top)) - 64px - env(safe-area-inset-bottom));
   overflow-y: auto; display: flex;
 }
 
