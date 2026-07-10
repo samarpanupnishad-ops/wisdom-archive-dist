@@ -12,9 +12,9 @@
 // Supabase side (see supabase/schema.sql) is what actually protects the data.
 // ==========================================================================
 
-const WA_SUPABASE_URL = "https://rykofkjrgcktydcliuqy.supabase.co";
+const WA_SUPABASE_URL = "https://psdfwpsddjmoqrrhwlns.supabase.co";
 const WA_SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5a29ma2pyZ2NrdHlkY2xpdXF5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5OTg5MzksImV4cCI6MjA5ODU3NDkzOX0.XxF0LOHlfx7BcEm5oeRTas1F4g4PvCS215Qg5awCrR8";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBzZGZ3cHNkZGptb3Fycmh3bG5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NzAzNjgsImV4cCI6MjA5OTI0NjM2OH0.8lwLmyk5LofnHrtWgCldWVi9wn7XPAKIC14L9iB6lS0";
 
 const _sb = supabase.createClient(WA_SUPABASE_URL, WA_SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, storageKey: "wa:sb-session" },
@@ -109,7 +109,7 @@ const WA = {
     const { data: { session } } = await _sb.auth.getSession();
     if (!session) throw Object.assign(new Error("Not signed in."), { code: "AUTH" });
     const user = await _loadProfile(session.user.id);
-    const isMod = user.role === "moderator" || user.role === "parmatma";
+    const isMod = user.role === "moderator" || user.role === "sutradhar";
     if (!(isMod || user.role === "member")) {
       throw Object.assign(new Error("Members only."), { code: "FORBIDDEN" });
     }
@@ -127,7 +127,7 @@ const WA = {
     const { data: { session } } = await _sb.auth.getSession();
     if (!session) throw Object.assign(new Error("Not signed in."), { code: "AUTH" });
     const me = await _loadProfile(session.user.id);
-    const isMod = me.role === "moderator" || me.role === "parmatma";
+    const isMod = me.role === "moderator" || me.role === "sutradhar";
     if (!isMod) {
       if (me.chat_muted) throw Object.assign(new Error("You have been muted."), { code: "MUTED" });
       if (me.role === "member" && me.chat_credits <= 0) throw Object.assign(new Error("No credits."), { code: "NO_CREDITS" });
@@ -178,7 +178,7 @@ const WA = {
 
   // ----- Message to admin (mobile "Message to Admin" page) ---------------
   // Table: admin_messages (see supabase/schema.sql). Signed-in users write;
-  // they see their own messages, moderators/parmatma see everyone's.
+  // they see their own messages, moderators/sutradhar see everyone's.
   async sendAdminMessage(text) {
     const { data: { session } } = await _sb.auth.getSession();
     if (!session) throw Object.assign(new Error("Please sign in first."), { code: "AUTH" });
@@ -199,7 +199,7 @@ const WA = {
     if (error) throw new Error(_tableMissing(error) || error.message);
     return { messages: (data || []).map((r) => ({ id: r.id, text: r.text, ts: r.created_at })) };
   },
-  // Moderators/parmatma: every user's messages, newest first.
+  // Moderators/sutradhar: every user's messages, newest first.
   async listAdminMessages() {
     const { data, error } = await _sb.from("admin_messages").select("*")
       .order("created_at", { ascending: false }).limit(200);

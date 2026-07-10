@@ -709,7 +709,7 @@ mark { background: var(--highlight); color: inherit; border-radius: 3px; padding
 /* Mod panel — chat controls per member */
 .mu-chat-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0 2px; }
 .mu-muted-tag { font-size: 10px; background: #fde8e8; color: #b94040; border-radius: 4px; padding: 1px 5px; font-weight: 600; vertical-align: middle; margin-left: 4px; }
-.mu-parmatma-tag { font-size: 10px; background: linear-gradient(90deg, #7c3aed, #a855f7); color: #fff; border-radius: 4px; padding: 1px 6px; font-weight: 700; vertical-align: middle; margin-left: 6px; letter-spacing: 0.02em; }
+.mu-sutradhar-tag { font-size: 10px; background: linear-gradient(90deg, #7c3aed, #a855f7); color: #fff; border-radius: 4px; padding: 1px 6px; font-weight: 700; vertical-align: middle; margin-left: 6px; letter-spacing: 0.02em; }
 .mu-transfer { background: linear-gradient(90deg, #7c3aed, #a855f7); color: #fff; border: none; font-size: 12px; padding: 5px 12px; border-radius: 7px; cursor: pointer; }
 .mu-credits-wrap { display: flex; align-items: center; gap: 4px; }
 .mu-credits-inp { border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; font-size: 13px; background: var(--bg); }

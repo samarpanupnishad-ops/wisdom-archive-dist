@@ -64,8 +64,8 @@ function authHeaders() { const t = store.token(); return t ? { Authorization: "B
 
 // Current signed-in user (cached in localStorage) + moderator gating for the nav.
 function currentUser() { try { return JSON.parse(localStorage.getItem("wa:user") || "null"); } catch { return null; } }
-function isModerator() { const u = currentUser(); return !!(store.token() && u && (u.role === "moderator" || u.role === "parmatma")); }
-function isParmatma() { const u = currentUser(); return !!(store.token() && u && u.role === "parmatma"); }
+function isModerator() { const u = currentUser(); return !!(store.token() && u && (u.role === "moderator" || u.role === "sutradhar")); }
+function isSutradhar() { const u = currentUser(); return !!(store.token() && u && u.role === "sutradhar"); }
 function isSignedIn() { return !!(store.token() && currentUser()); }
 function refreshModNav() {
   document.getElementById("app").classList.toggle("is-mod", isModerator());
@@ -1977,16 +1977,16 @@ async function renderModerator() {
 
 function modUserRow(u, me) {
   const isSelf = me && me.id === u.id;
-  const isParmatmaRow = u.role === "parmatma";
+  const isSutradharRow = u.role === "sutradhar";
   const isModRow = u.role === "moderator";
-  const isElevated = isParmatmaRow || isModRow;
-  const viewerIsParmatma = me && me.role === "parmatma";
+  const isElevated = isSutradharRow || isModRow;
+  const viewerIsSutradhar = me && me.role === "sutradhar";
 
-  const roleLabel = isParmatmaRow
-    ? `<span class="mu-parmatma-tag">Parmatma</span>`
+  const roleLabel = isSutradharRow
+    ? `<span class="mu-sutradhar-tag">Sutradhar</span>`
     : "";
 
-  const roleSelect = !isParmatmaRow
+  const roleSelect = !isSutradharRow
     ? `<select class="mu-role">
         ${["pending", "member", "moderator"].map((r) => `<option value="${r}" ${u.role === r ? "selected" : ""}>${r}</option>`).join("")}
        </select>`
@@ -1999,11 +1999,11 @@ function modUserRow(u, me) {
        </div>`
     : "";
 
-  const transferBtn = (viewerIsParmatma && isModRow)
-    ? `<button class="btn mu-transfer" title="Make this person the Parmatma">Make Parmatma</button>`
+  const transferBtn = (viewerIsSutradhar && isModRow)
+    ? `<button class="btn mu-transfer" title="Make this person the Sutradhar">Make Sutradhar</button>`
     : "";
 
-  const removeBtn = !isParmatmaRow
+  const removeBtn = !isSutradharRow
     ? `<button class="btn danger mu-remove">Remove</button>`
     : "";
 
@@ -2037,9 +2037,9 @@ function modUserRow(u, me) {
     });
   }
 
-  if (viewerIsParmatma && isModRow) {
+  if (viewerIsSutradhar && isModRow) {
     row.querySelector(".mu-transfer").addEventListener("click", async () => {
-      if (!confirm(`Transfer Parmatma leadership to ${u.username}? You will become a moderator.`)) return;
+      if (!confirm(`Transfer Sutradhar leadership to ${u.username}? You will become a moderator.`)) return;
       try {
         await WA.transferLeadership(u.id);
         toast(`Leadership transferred to ${u.username}`);
@@ -2050,7 +2050,7 @@ function modUserRow(u, me) {
     });
   }
 
-  if (!isParmatmaRow) {
+  if (!isSutradharRow) {
     row.querySelector(".mu-role").addEventListener("change", async (ev) => {
       const role = ev.target.value;
       try {
