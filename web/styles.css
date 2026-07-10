@@ -1239,6 +1239,10 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 .m-flip-inner {
   position: absolute; inset: 0; transform-style: preserve-3d;
   transition: transform .7s cubic-bezier(.35, .1, .25, 1);
+  /* Keep the 3D layer promoted permanently: without this the compositor tears
+     the layer down when the flip animation ends and repaints — a visible
+     re-raster "snap" right after the flip settles. */
+  will-change: transform;
 }
 .m-flip.flipped .m-flip-inner { transform: rotateY(-180deg); }
 .m-face {

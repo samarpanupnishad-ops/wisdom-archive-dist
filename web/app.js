@@ -3009,6 +3009,7 @@ const MOBILE_UI = (() => {
       requestAnimationFrame(() => { inner.style.transition = ""; });
     }
 
+
     const extrasBox = root.querySelector(".m-extras");
     const renderExtras = () => {
       const pages = (e.extras || []).filter((x) => x.lang === lang);
@@ -3033,11 +3034,30 @@ const MOBILE_UI = (() => {
       if (l === lang) return;
       lang = l;
       const inner = flip.querySelector(".m-flip-inner");
-      if (!animate) inner.style.transition = "none";
-      flip.classList.toggle("flipped", lang === "en");
-      if (!animate) requestAnimationFrame(() => { inner.style.transition = ""; });
-      renderExtras();
-      if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
+      const doFlip = () => {
+        if (!animate) inner.style.transition = "none";
+        flip.classList.toggle("flipped", lang === "en");   // reads live `lang` — safe on rapid re-toggles
+        if (!animate) requestAnimationFrame(() => { inner.style.transition = ""; });
+        renderExtras();
+        if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
+      };
+      // Decode the incoming face FIRST, then flip. Chromium never decodes (and
+      // evicts any decoded bitmap of) the rotated-away backface-hidden image —
+      // pre-decoding at build time measurably does NOT survive. So flipping
+      // straight away rasterized an undecoded full-screen JPG: blank face,
+      // then the bitmap "popped in" when the async decode landed (the visible
+      // post-flip adjust). decode()-then-flip guarantees the bitmap is ready
+      // for the animation's first frame; the timeout caps a slow/failed decode
+      // so the gesture can never stall.
+      const im = root.querySelector(lang === "hi" ? ".m-front img" : ".m-back img");
+      if (animate && im && im.complete) {
+        let done = false;
+        const go = () => { if (!done) { done = true; doFlip(); } };
+        try { im.decode().then(go, go); } catch { go(); }
+        setTimeout(go, 250);
+      } else {
+        doFlip();
+      }
     }
 
     return { root, setLang, entry: e };
