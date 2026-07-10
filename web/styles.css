@@ -1235,7 +1235,13 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 .m-vact-dl { color: #4fa6e8; border-color: #4fa6e8; }      /* light-blue glyph + ring */
 .m-vact-fav.on { color: #e53935; }
 .m-vact-fav.on svg { fill: #e53935; }
-.m-flip { position: relative; height: 100%; perspective: 1600px; }
+/* overflow: clip — mid-rotation the 3D perspective bulges the plane ~75px
+   taller than the box; unclipped, that transient bulge became scrollable
+   overflow in the slide (an overflow-y:auto scroller), flashing a scrollbar
+   and a settle-twitch on every language flip. `clip` (not `hidden`) can't
+   itself become a scroll container. The clipped sliver was already hidden
+   under the opaque top panel / bottom bar, so nothing visible changes. */
+.m-flip { position: relative; height: 100%; perspective: 1600px; overflow: clip; }
 .m-flip-inner {
   position: absolute; inset: 0; transform-style: preserve-3d;
   transition: transform .7s cubic-bezier(.35, .1, .25, 1);
