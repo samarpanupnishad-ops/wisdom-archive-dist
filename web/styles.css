@@ -1226,11 +1226,14 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 }
 .m-vact:active { background: var(--accent-soft, #f6e7dc); }
 .m-vact.m-vact-disabled { opacity: .4; pointer-events: none; }
-/* Top-panel glyph colours (companion palette to the orange theme). Favorite
-   is a neutral outline until tapped, then fills red. */
-.m-vact-share { color: #f48fb1; }   /* light pink */
-.m-vact-dl { color: #4fa6e8; }      /* light blue */
-.m-vact-fav.on { color: #e53935; border-color: #e53935; }
+/* Top-panel colours (companion palette to the orange theme): the circle
+   OUTLINE of each button is tinted — favorite red, share pink, download blue —
+   with the fill left white. Favorite's heart stays a neutral outline until
+   tapped, then fills red. */
+.m-vact-fav { border-color: #e53935; }                     /* red ring */
+.m-vact-share { color: #f48fb1; border-color: #f48fb1; }   /* pink glyph + ring */
+.m-vact-dl { color: #4fa6e8; border-color: #4fa6e8; }      /* light-blue glyph + ring */
+.m-vact-fav.on { color: #e53935; }
 .m-vact-fav.on svg { fill: #e53935; }
 .m-flip { position: relative; height: 100%; perspective: 1600px; }
 .m-flip-inner {
