@@ -2840,26 +2840,40 @@ const MOBILE_UI = (() => {
     applyLangToFeed(b.dataset.lang, true);
   });
 
-  // ---- tick sound (scrolling to another day, older or newer) --------------
-  // Synthesised — no audio asset to bundle or download. Settings toggle,
-  // default ON.
-  let _tickCtx = null;
-  function tickEnabled() { return pref("wa:mobile:tickSound", "1") === "1"; }
-  function playTick() {
-    if (!tickEnabled()) return;
+  // ---- page-flip sound (scrolling to another day, older or newer) ---------
+  // Synthesised page-flip ("fwip"): a short white-noise burst swept through a
+  // bandpass filter — acoustically what a turning page is. No audio asset to
+  // bundle or download (OTA-safe); Web Audio gives ~0ms start latency and free
+  // overlap (each play is its own source node), the SoundPool equivalent.
+  // Settings toggle ("Flip sound"), default ON — same localStorage key as the
+  // old tick so existing users' preference carries over. Alternatives kept
+  // open: a recorded sample (base64 in this file) or a native-audio plugin.
+  let _sndCtx = null, _noiseBuf = null;
+  function flipSoundEnabled() { return pref("wa:mobile:tickSound", "1") === "1"; }
+  function playFlipSound() {
+    if (!flipSoundEnabled()) return;
     try {
-      _tickCtx = _tickCtx || new (window.AudioContext || window.webkitAudioContext)();
-      if (_tickCtx.state === "suspended") _tickCtx.resume();
-      const t0 = _tickCtx.currentTime;
-      const osc = _tickCtx.createOscillator();
-      const gain = _tickCtx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(920, t0);
-      gain.gain.setValueAtTime(0.001, t0);
-      gain.gain.exponentialRampToValueAtTime(0.16, t0 + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
-      osc.connect(gain); gain.connect(_tickCtx.destination);
-      osc.start(t0); osc.stop(t0 + 0.12);
+      _sndCtx = _sndCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (_sndCtx.state === "suspended") _sndCtx.resume();
+      const ctx = _sndCtx, t0 = ctx.currentTime;
+      if (!_noiseBuf) {   // built once, reused by every play
+        const len = Math.floor(ctx.sampleRate * 0.25);
+        _noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = _noiseBuf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      }
+      const src = ctx.createBufferSource(); src.buffer = _noiseBuf;
+      const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.1;
+      bp.frequency.setValueAtTime(1200, t0);
+      bp.frequency.exponentialRampToValueAtTime(4200, t0 + 0.06);   // paper lifting
+      bp.frequency.exponentialRampToValueAtTime(900, t0 + 0.19);    // settling down
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.5, t0 + 0.025);
+      g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.12);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+      src.connect(bp); bp.connect(g); g.connect(ctx.destination);
+      src.start(t0); src.stop(t0 + 0.22);
     } catch {}
   }
 
@@ -3075,9 +3089,38 @@ const MOBILE_UI = (() => {
     return slide;
   }
 
+  // ---- feed caches (consecutive flips rebuild from memory, not the API) ----
+  // Entries are immutable, so the entry cache is safe. Neighbor lookups are
+  // cached ONLY when a newer neighbor exists — the newest entry's "no newer"
+  // answer must stay fresh so the daily sync's new message is seen without an
+  // app restart. Image warmup fetches + decodes ahead so a flip never lands
+  // on a cold image.
+  const _entryCache = new Map(), _nbrCache = new Map(), _imgWarm = new Map();
+  function trimMap(m, max) { while (m.size > max) m.delete(m.keys().next().value); }
+  async function getEntryCached(id) {
+    if (_entryCache.has(id)) return _entryCache.get(id);
+    const e = await api("/api/entry/" + encodeURIComponent(id));
+    _entryCache.set(id, e); trimMap(_entryCache, 40);
+    return e;
+  }
+  async function getNeighborsCached(id) {
+    if (_nbrCache.has(id)) return _nbrCache.get(id);
+    const n = await api("/api/entry/" + encodeURIComponent(id) + "/neighbors");
+    if (n.newer_id) { _nbrCache.set(id, n); trimMap(_nbrCache, 60); }
+    return n;
+  }
+  function warmImages(e) {
+    if (!e) return;
+    [e.img_hi_url, e.img_en_url].forEach((u) => {
+      if (!u || _imgWarm.has(u)) return;
+      const im = new Image(); im.decoding = "async"; im.src = u;
+      _imgWarm.set(u, im); trimMap(_imgWarm, 24);
+    });
+  }
+
   // Vertical scroll-snap feed: OLDER (top) · CURRENT (middle) · NEWER (bottom).
-  // Swiping DOWN reveals OLDER (tick sound); swiping UP reveals NEWER — the
-  // same up/down convention as Reels/Shorts. Replaces the old left/right swipe.
+  // Swiping DOWN reveals OLDER (a page-flip sound plays); swiping UP reveals
+  // NEWER — the same up/down convention as Reels/Shorts.
   let _feedSettling = false;
   async function buildFeed(centerEntry, isHome) {
     setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", centerEntry);
@@ -3103,15 +3146,16 @@ const MOBILE_UI = (() => {
       newerId = idx < listMode.ids.length - 1 ? listMode.ids[idx + 1] : null;
     } else {
       try {
-        const n = await api("/api/entry/" + encodeURIComponent(centerEntry.id) + "/neighbors");
+        const n = await getNeighborsCached(centerEntry.id);
         olderId = n.older_id; newerId = n.newer_id;
       } catch {}
     }
     const [olderE, newerE] = await Promise.all([
-      olderId ? api("/api/entry/" + encodeURIComponent(olderId)).catch(() => null) : Promise.resolve(null),
-      newerId ? api("/api/entry/" + encodeURIComponent(newerId)).catch(() => null) : Promise.resolve(null),
+      olderId ? getEntryCached(olderId).catch(() => null) : Promise.resolve(null),
+      newerId ? getEntryCached(newerId).catch(() => null) : Promise.resolve(null),
     ]);
     if (_stageId !== centerEntry.id) return;   // superseded by a newer navigation mid-fetch
+    _entryCache.set(centerEntry.id, centerEntry);
 
     paintLang(prefLang);
     const oCtl = olderE ? buildViewerCard(olderE, false) : null;
@@ -3134,19 +3178,37 @@ const MOBILE_UI = (() => {
     setTimeout(() => { if (_stageId === centerEntry.id) feed.scrollTop = centerIdx * feed.clientHeight; }, 120);
     _feedSettling = false;
 
+    // ---- page-flip sound: release-with-commit trigger ---------------------
+    // The sound fires the instant the flip becomes inevitable, so it starts
+    // together with the snap animation — not at settle (too late) and not at
+    // drag-start (false-fires on aborted swipes):
+    //  - finger lifted with the feed dragged past halfway → play at release;
+    //  - fling released early → play the moment momentum crosses halfway;
+    //  - while the finger is still down, never play (they may drag back).
+    // onSettle keeps a fallback so exotic paths can't produce a silent flip;
+    // soundDone guarantees exactly one sound per transition.
+    let soundDone = false, fingerDown = false;
+    const maybeFlipSound = () => {
+      if (soundDone || fingerDown) return;
+      const off = feed.scrollTop - centerIdx * feed.clientHeight;
+      if ((off > feed.clientHeight * 0.5 && newerE) || (off < -feed.clientHeight * 0.5 && olderE)) {
+        soundDone = true; playFlipSound();
+      }
+    };
+
     const onSettle = () => {
       if (_feedSettling || _stageId !== centerEntry.id) return;
       const h = feed.clientHeight;
       const idx = Math.round(feed.scrollTop / h);
       if (idx === centerIdx) return;   // still centered — nothing to do
-      if (idx < centerIdx && olderE) { _feedSettling = true; playTick(); buildFeed(olderE, isHome); }
-      else if (idx > centerIdx && newerE) { _feedSettling = true; playTick(); buildFeed(newerE, isHome); }
+      if (idx < centerIdx && olderE) { _feedSettling = true; if (!soundDone) { soundDone = true; playFlipSound(); } buildFeed(olderE, isHome); }
+      else if (idx > centerIdx && newerE) { _feedSettling = true; if (!soundDone) { soundDone = true; playFlipSound(); } buildFeed(newerE, isHome); }
       else { feed.scrollTop = centerIdx * h; }   // defensive — no slide exists that way
     };
     let settleTimer = null;
     feed.addEventListener("scrollend", onSettle);
     // Fallback for WebViews without the 'scrollend' event: settle-by-debounce.
-    feed.addEventListener("scroll", () => { clearTimeout(settleTimer); settleTimer = setTimeout(onSettle, 130); }, { passive: true });
+    feed.addEventListener("scroll", () => { maybeFlipSound(); clearTimeout(settleTimer); settleTimer = setTimeout(onSettle, 130); }, { passive: true });
 
     // Edge-attempt toasts: with no end-pages the feed can't move past a
     // boundary, so detect the ATTEMPT from the gesture — finger direction at
@@ -3166,19 +3228,41 @@ const MOBILE_UI = (() => {
       return false;
     };
     let touchY = null, edgeToasted = false;
-    feed.addEventListener("touchstart", (ev) => { touchY = ev.touches[0].clientY; edgeToasted = false; }, { passive: true });
+    feed.addEventListener("touchstart", (ev) => { fingerDown = true; touchY = ev.touches[0].clientY; edgeToasted = false; }, { passive: true });
     feed.addEventListener("touchmove", (ev) => {
       if (touchY === null || edgeToasted) return;
       const dy = ev.touches[0].clientY - touchY;
       if (dy < -26) edgeToasted = edgeToast("newer");        // finger up → wants newer
       else if (dy > 26) edgeToasted = edgeToast("older");    // finger down → wants older
     }, { passive: true });
+    feed.addEventListener("touchend", (ev) => {
+      if (!ev.touches.length) { fingerDown = false; maybeFlipSound(); }   // release-with-commit
+    }, { passive: true });
+    feed.addEventListener("touchcancel", () => { fingerDown = false; }, { passive: true });
     let wheelCool = 0;
     feed.addEventListener("wheel", (ev) => {                 // desktop/browser test mode
       const now = Date.now();
       if (now - wheelCool < 900) return;
       if ((ev.deltaY > 0 && edgeToast("newer")) || (ev.deltaY < 0 && edgeToast("older"))) wheelCool = now;
     }, { passive: true });
+
+    // ---- prefetch ±2 (the Phase-1.5 cache) ---------------------------------
+    // The adjacent entries are already mounted as slides; warm the NEXT ring
+    // (data + images) so the rebuild after a flip is instant and never lands
+    // on an undecoded image — this is what makes consecutive flips fluid.
+    (async () => {
+      warmImages(olderE); warmImages(newerE);
+      const ring = listMode
+        ? [listMode.index - 2, listMode.index + 2].map((i) => listMode.ids[i] || null)
+        : await Promise.all([[olderId, "older_id"], [newerId, "newer_id"]].map(async ([nid, key]) => {
+            if (!nid) return null;
+            try { return (await getNeighborsCached(nid))[key]; } catch { return null; }
+          }));
+      for (const beyond of ring) {
+        if (!beyond || _stageId !== centerEntry.id) continue;
+        try { warmImages(await getEntryCached(beyond)); } catch {}
+      }
+    })();
   }
 
   // ---- generic page frame --------------------------------------------------
@@ -3527,14 +3611,14 @@ const MOBILE_UI = (() => {
         <h3 style="margin-top:0">Display</h3>
         <label class="m-switchrow">Zoom bar on left side
           <span class="m-switch"><input type="checkbox" id="m-zb-side"><i></i></span></label>
-        <label class="m-switchrow">Tick sound when scrolling to another day
+        <label class="m-switchrow">Flip sound
           <span class="m-switch"><input type="checkbox" id="m-tick-sound"><i></i></span></label>
         <div class="m-hint">Double-tap a Guru's msg image to open zoom. Off = right side (default).</div>
       </div>`);
       prose.appendChild(box);
       const zb = box.querySelector("#m-zb-side"), ts = box.querySelector("#m-tick-sound");
       zb.checked = pref("wa:mobile:zoomBarSide", "right") === "left";
-      ts.checked = tickEnabled();
+      ts.checked = flipSoundEnabled();
       zb.addEventListener("change", () => setPref("wa:mobile:zoomBarSide", zb.checked ? "left" : "right"));
       ts.addEventListener("change", () => setPref("wa:mobile:tickSound", ts.checked ? "1" : "0"));
     },
