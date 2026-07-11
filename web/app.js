@@ -3028,13 +3028,15 @@ const MOBILE_UI = (() => {
     };
   }
 
-  // One reading card: the flip image + extra pages. `isCurrent` marks the
-  // centered slide — only it drives the shared top panel (older/newer slides
-  // sit off-screen and get fully rebuilt via buildFeed() before they ever
-  // become current, so they never need to touch the panel). Returned as a
-  // controller so the language toggle can update every mounted card
-  // (older/current/newer) at once.
+  // One reading card: the flip image + extra pages. `cur` marks the centered
+  // slide — only it drives the shared top panel. Cards are POOLED and reused
+  // across flips (see getCard/_cardPool), so `cur` is mutable via setCurrent():
+  // a pooled card re-wires the panel when it becomes the centre again, and its
+  // already-decoded image is preserved (no re-decode), which is what keeps
+  // rapid consecutive flips smooth. Returned as a controller so the language
+  // toggle can update every mounted card at once.
   function buildViewerCard(e, isCurrent) {
+    let cur = !!isCurrent;
     let lang = prefLang;
     if (lang === "hi" && !(e.img_hi_url || e.body_hi)) lang = "en";
     if (lang === "en" && !(e.img_en_url || e.body_en)) lang = "hi";
@@ -3073,7 +3075,9 @@ const MOBILE_UI = (() => {
     const curName = () => `GM_${e.date ? fmtDateFile(e.date) : e.id}.jpg`;
     // Share subject/caption = one clean line, e.g. "Guru's Daily msg - 9th July, 2026".
     const curCaption = () => `Guru's Daily msg - ${fmtDateShare(e.date)}`;
-    if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
+    const wirePanel = () => wireVPanel(e, curImg, curName, curCaption);
+    function setCurrent(v) { cur = !!v; if (cur) wirePanel(); }
+    if (cur) wirePanel();
 
     function setLang(l, animate) {
       if (l === lang) return;
@@ -3084,7 +3088,7 @@ const MOBILE_UI = (() => {
         flip.classList.toggle("flipped", lang === "en");   // reads live `lang` — safe on rapid re-toggles
         if (!animate) requestAnimationFrame(() => { inner.style.transition = ""; });
         renderExtras();
-        if (isCurrent) wireVPanel(e, curImg, curName, curCaption);
+        if (cur) wirePanel();
       };
       // Decode the incoming face FIRST, then flip. Chromium never decodes (and
       // evicts any decoded bitmap of) the rotated-away backface-hidden image —
@@ -3105,7 +3109,7 @@ const MOBILE_UI = (() => {
       }
     }
 
-    return { root, setLang, entry: e };
+    return { root, setLang, setCurrent, entry: e };
   }
 
   function feedSlideEl(ctl, kind) {
@@ -3153,6 +3157,31 @@ const MOBILE_UI = (() => {
     });
   }
 
+  // ---- card pool (Phase 2: reuse DOM + decoded images across flips) --------
+  // The 4th-flip stutter was rebuild-per-flip: every settle tore down all three
+  // slides and built three fresh <img>, forcing full-screen re-decodes + new
+  // GPU textures that saturated after a few flips. Now cards are kept in an LRU
+  // pool keyed by entry id and REUSED: a flip builds at most ONE new card (the
+  // freshly-revealed neighbor); the two that carry over keep their live DOM and
+  // already-decoded bitmaps, so nothing re-decodes and textures stay stable.
+  const _cardPool = new Map();
+  function getCard(e) {
+    let c = _cardPool.get(e.id);
+    if (c) {
+      _cardPool.delete(e.id); _cardPool.set(e.id, c);   // LRU bump
+      c.setLang(prefLang, false);                        // sync language if it changed while pooled
+    } else {
+      c = buildViewerCard(e, false);
+      _cardPool.set(e.id, c);
+      while (_cardPool.size > 6) {                        // evict oldest (never one of the 3 just bumped)
+        const k = _cardPool.keys().next().value, old = _cardPool.get(k);
+        _cardPool.delete(k);
+        if (old.root.parentNode) old.root.parentNode.removeChild(old.root);
+      }
+    }
+    return c;
+  }
+
   // Vertical scroll-snap feed: OLDER (top) · CURRENT (middle) · NEWER (bottom).
   // Swiping DOWN reveals OLDER (a page-flip sound plays); swiping UP reveals
   // NEWER — the same up/down convention as Reels/Shorts.
@@ -3193,9 +3222,14 @@ const MOBILE_UI = (() => {
     _entryCache.set(centerEntry.id, centerEntry);
 
     paintLang(prefLang);
-    const oCtl = olderE ? buildViewerCard(olderE, false) : null;
-    const cCtl = buildViewerCard(centerEntry, true);
-    const nCtl = newerE ? buildViewerCard(newerE, false) : null;
+    // Reuse pooled cards (keeps their decoded images) — only a brand-new
+    // neighbor is actually built. Mark exactly one as current (drives panel).
+    const oCtl = olderE ? getCard(olderE) : null;
+    const cCtl = getCard(centerEntry);
+    const nCtl = newerE ? getCard(newerE) : null;
+    if (oCtl) oCtl.setCurrent(false);
+    if (nCtl) nCtl.setCurrent(false);
+    cCtl.setCurrent(true);
     _feedCards = [oCtl, cCtl, nCtl];
 
     // Slides exist only for REAL entries — no end-pages. At a boundary the
