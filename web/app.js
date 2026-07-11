@@ -3121,6 +3121,16 @@ const MOBILE_UI = (() => {
   // app restart. Image warmup fetches + decodes ahead so a flip never lands
   // on a cold image.
   const _entryCache = new Map(), _nbrCache = new Map(), _imgWarm = new Map();
+  // Single, cancellable look-ahead prefetch handle (see buildFeed): each flip
+  // cancels the previous flip's pending prefetch so rapid flipping can't pile
+  // up a backlog of image-decode callbacks that fire all at once and stutter.
+  let _prefetchHandle = null, _prefetchIsIdle = false;
+  function cancelPrefetch() {
+    if (_prefetchHandle == null) return;
+    if (_prefetchIsIdle && window.cancelIdleCallback) cancelIdleCallback(_prefetchHandle);
+    else clearTimeout(_prefetchHandle);
+    _prefetchHandle = null;
+  }
   function trimMap(m, max) { while (m.size > max) m.delete(m.keys().next().value); }
   async function getEntryCached(id) {
     if (_entryCache.has(id)) return _entryCache.get(id);
@@ -3292,8 +3302,13 @@ const MOBILE_UI = (() => {
         try { warmImages(await getEntryCached(beyond)); } catch {}
       }
     };
-    if (window.requestIdleCallback) requestIdleCallback(() => prefetchRing(), { timeout: 1200 });
-    else setTimeout(prefetchRing, 450);
+    // Cancel any prefetch still pending from the PREVIOUS flip, then schedule
+    // just this one. During rapid flipping each new flip cancels the last, so
+    // the decode work only ever runs once — after the user actually pauses —
+    // instead of a stack of callbacks force-firing mid-flip (the 4th-flip lag).
+    cancelPrefetch();
+    if (window.requestIdleCallback) { _prefetchIsIdle = true; _prefetchHandle = requestIdleCallback(() => { _prefetchHandle = null; prefetchRing(); }, { timeout: 2000 }); }
+    else { _prefetchIsIdle = false; _prefetchHandle = setTimeout(() => { _prefetchHandle = null; prefetchRing(); }, 600); }
   }
 
   // ---- generic page frame --------------------------------------------------
