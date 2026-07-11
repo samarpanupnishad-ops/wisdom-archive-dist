@@ -2831,6 +2831,10 @@ const MOBILE_UI = (() => {
     $("m-langseg").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
   }
   function applyLangToFeed(l, animate) {
+    // Language toggle is a page-flip too — play the same flip sound, but only
+    // when the language actually changes and the toggle was user-driven
+    // (animate), not on silent programmatic sync.
+    if (animate && l !== prefLang) playFlipSound();
     prefLang = l;
     paintLang(l);
     _feedCards.forEach((c) => c && c.setLang(l, animate));
