@@ -3236,7 +3236,7 @@ const MOBILE_UI = (() => {
   const SWIPE = {
     GLIDE_SCALE: 1.5, GLIDE_MIN: 130, GLIDE_MAX: 520, CANCEL_MS: 260,
     EASE: "cubic-bezier(0.2, 0.3, 0.2, 1)",
-    COMMIT_FRAC: 0.16, COMMIT_VEL: 0.45, EDGE_RESIST: 0.35, DECIDE_SLOP: 8, EXTRAS_MIN: 40,
+    COMMIT_FRAC: 0.10, COMMIT_VEL: 0.35, EDGE_RESIST: 0.35, DECIDE_SLOP: 8, EXTRAS_MIN: 40,
   };
   async function buildFeed(centerEntry, isHome, enter) {
     setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", centerEntry);
