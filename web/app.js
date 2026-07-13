@@ -1610,17 +1610,22 @@ function renderInfo(kind) {
   }[kind];
   $view.innerHTML = `<div class="page-title">${title}</div><div class="prose">${body}</div>`;
   if (kind === "about") {
-    // Fill the version number from the local backend (VERSION file next to the app).
-    fetch("/api/version")
-      .then((r) => r.json())
-      .then((d) => {
-        const el = document.getElementById("wa-version");
-        if (el) el.textContent = d.version || "unknown";
-      })
-      .catch(() => {
-        const el = document.getElementById("wa-version");
-        if (el) el.textContent = "unknown";
-      });
+    // Fill the version number. On desktop this is the VERSION file via the API.
+    // On the phone, an OTA UI update bumps the RUNNING ui (app.js/styles.css)
+    // without touching the bundled wa-mobile.json that /api/version reports — so
+    // an OTA'd phone would otherwise show its stale APK version here. Prefer the
+    // applied OTA version (wa:mobile:uiVersion) so About reflects what's actually
+    // running; fall back to /api/version (fresh APK, never OTA'd) then "unknown".
+    const setVer = (v) => { const el = document.getElementById("wa-version"); if (el) el.textContent = v || "unknown"; };
+    let otaVer = "";
+    try { otaVer = localStorage.getItem("wa:mobile:uiVersion") || ""; } catch {}
+    if (otaVer) { setVer(otaVer); }
+    else {
+      fetch("/api/version")
+        .then((r) => r.json())
+        .then((d) => setVer(d.version))
+        .catch(() => setVer("unknown"));
+    }
   }
   if (kind === "settings") {
     wireSyncBox();
