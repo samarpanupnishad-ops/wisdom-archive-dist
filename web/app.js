@@ -3065,6 +3065,10 @@ const MOBILE_UI = (() => {
     const renderExtras = () => {
       const pages = (e.extras || []).filter((x) => x.lang === lang);
       extrasBox.innerHTML = pages.map((x) => `<img src="${x.url}" alt="" loading="lazy" decoding="async">`).join("");
+      // Mark the card so ONLY genuine extra-page entries let their inner scroll
+      // claim a swipe (the data-driven gate — see innerCanScroll / touch-action
+      // CSS). Re-runs on language flip, so the flag tracks the visible side.
+      root.classList.toggle("m-has-extras", pages.length > 0);
     };
     renderExtras();
 
@@ -3186,10 +3190,49 @@ const MOBILE_UI = (() => {
     return c;
   }
 
-  // Vertical scroll-snap feed: OLDER (top) · CURRENT (middle) · NEWER (bottom).
-  // Swiping DOWN reveals OLDER (a page-flip sound plays); swiping UP reveals
-  // NEWER — the same up/down convention as Reels/Shorts.
-  let _feedSettling = false;
+  // Vertical transform-driven feed: OLDER (top) · CURRENT (middle) · NEWER
+  // (bottom), stacked in a strip we move ourselves with translateY. Swiping
+  // DOWN reveals OLDER (a page-flip sound plays); swiping UP reveals NEWER —
+  // the Reels/Shorts convention.
+  //
+  // Why not native scroll-snap (the pre-8.17 design)? Android WebView's
+  // fling+snap timing dropped fast swipes: a quick flick often settled a hair
+  // short of the neighbour, `scroll-snap-type: mandatory` yanked it back to
+  // centre, and the user had to swipe AGAIN. Slow drags landed cleanly, so it
+  // "worked when slow, needed two tries when fast". We now drive the gesture
+  // ourselves — the strip follows the finger and a release commits on distance
+  // OR velocity — so ONE fast flick always advances exactly one message.
+  // Extras pages still scroll natively inside the current slide; we only take
+  // the gesture over for navigation once that inner scroll hits its boundary.
+  //
+  // ---- swipe feel — safe to tune (the "smooth swiping" work, 8.17) ----
+  // The commit glide carries the finger's release SPEED into the animation
+  // (momentum continuity), instead of a fixed duration. A fixed duration made
+  // fast/medium flicks feel like "pressure on the thumb": the finger flew but
+  // the content crawled the leftover distance at a constant slow rate, lagging
+  // then catching up. Now duration = GLIDE_SCALE × remaining ÷ release-speed, so
+  // the glide STARTS at ~finger speed and eases to rest — the page flies with
+  // the thumb. (See the "smooth swiping" work, 8.17 / retune 8.53.)
+  //   GLIDE_SCALE          : higher = the glide starts nearer the finger's speed
+  //                          (matches the EASE curve's front-loaded start)
+  //   GLIDE_MIN/MAX        : clamp on the computed glide duration (ms)
+  //   CANCEL_MS            : spring-back when a swipe doesn't commit
+  //   EASE                 : gentle-start decelerate → begins ≈ finger speed, soft stop
+  //   COMMIT_FRAC          : drag past this fraction of screen height → commit
+  //   COMMIT_VEL           : …or fling faster than this (px/ms) → commit (fixes fast swipe)
+  //   EDGE_RESIST          : rubber-band factor when pulling past the first/last message
+  //   DECIDE_SLOP          : px of travel before we lock "scroll extras" vs "navigate"
+  //   EXTRAS_MIN           : a slide needs at least this much inner overflow before its
+  //                          own scroll may claim a swipe. High-DPI phones round the
+  //                          full-screen image to a few px of PHANTOM overflow; ≤1px
+  //                          let that eat the first swipe-up (→ "two swipes on some
+  //                          images"). Real extra pages are hundreds of px, so 40 is
+  //                          safely above rounding yet well below any genuine extra.
+  const SWIPE = {
+    GLIDE_SCALE: 1.5, GLIDE_MIN: 130, GLIDE_MAX: 520, CANCEL_MS: 260,
+    EASE: "cubic-bezier(0.2, 0.3, 0.2, 1)",
+    COMMIT_FRAC: 0.16, COMMIT_VEL: 0.45, EDGE_RESIST: 0.35, DECIDE_SLOP: 8, EXTRAS_MIN: 40,
+  };
   async function buildFeed(centerEntry, isHome) {
     setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", centerEntry);
     _stageId = centerEntry.id;
@@ -3236,87 +3279,133 @@ const MOBILE_UI = (() => {
     cCtl.setCurrent(true);
     _feedCards = [oCtl, cCtl, nCtl];
 
-    // Slides exist only for REAL entries — no end-pages. At a boundary the
-    // feed simply has nothing to scroll to; the "you're at the edge" feedback
-    // is a red toast fired from the swipe attempt itself (below).
+    // ---- build the strip: [older?] · current · [newer?] --------------------
+    // Only REAL entries get slides (no end-pages). At a boundary a swipe that
+    // way rubber-bands and a red edge toast explains why.
+    const strip = el(`<div class="m-strip"></div>`);
+    if (oCtl) strip.appendChild(feedSlideEl(oCtl, "older"));
+    strip.appendChild(feedSlideEl(cCtl, "current"));
+    if (nCtl) strip.appendChild(feedSlideEl(nCtl, "newer"));
+    const centerIdx = oCtl ? 1 : 0;              // which slide is the current entry
     const feed = el(`<div class="m-feed"></div>`);
-    if (oCtl) feed.appendChild(feedSlideEl(oCtl, "older"));
-    feed.appendChild(feedSlideEl(cCtl, "current"));
-    if (nCtl) feed.appendChild(feedSlideEl(nCtl, "newer"));
-    const centerIdx = oCtl ? 1 : 0;   // which slide is the current entry
+    feed.appendChild(strip);
     $view.replaceChildren(feed);
-    feed.scrollTop = centerIdx * feed.clientHeight;   // land on the current slide, no animation
-    // Belt-and-braces re-center once the async image loads (which resize the
-    // off-screen slides) have had a moment to settle.
-    setTimeout(() => { if (_stageId === centerEntry.id) feed.scrollTop = centerIdx * feed.clientHeight; }, 120);
-    _feedSettling = false;
 
-    // ---- page-flip sound: release-with-commit trigger ---------------------
-    // The sound fires the instant the flip becomes inevitable, so it starts
-    // together with the snap animation — not at settle (too late) and not at
-    // drag-start (false-fires on aborted swipes):
-    //  - finger lifted with the feed dragged past halfway → play at release;
-    //  - fling released early → play the moment momentum crosses halfway;
-    //  - while the finger is still down, never play (they may drag back).
-    // onSettle keeps a fallback so exotic paths can't produce a silent flip;
-    // soundDone guarantees exactly one sound per transition.
-    let soundDone = false, fingerDown = false;
-    const maybeFlipSound = () => {
-      if (soundDone || fingerDown) return;
-      const off = feed.scrollTop - centerIdx * feed.clientHeight;
-      if ((off > feed.clientHeight * 0.5 && newerE) || (off < -feed.clientHeight * 0.5 && olderE)) {
-        soundDone = true; playFlipSound();
-      }
+    const H = () => feed.clientHeight || 1;      // one screen's height (live — survives resize)
+    const base = () => -centerIdx * H();         // resting translateY (current slide in view)
+    let curY = 0;                                // last translateY we set (for glide-distance math)
+    const setY = (y, ms) => {                    // ms = 0 → snap with no transition
+      curY = y;
+      strip.style.transition = ms ? `transform ${ms}ms ${SWIPE.EASE}` : "none";
+      strip.style.transform = `translate3d(0,${y}px,0)`;
+    };
+    setY(base(), 0);                             // land on the current slide, no animation
+    // Keep the resting position correct across an orientation/size change while
+    // the user is just looking (not mid-gesture or mid-flip).
+    let dragging = false, navigating = false;
+    try { new ResizeObserver(() => { if (!dragging && !navigating) setY(base(), 0); }).observe(feed); } catch {}
+
+    // Commit a navigation: the page-flip sound fires the instant the flip is
+    // inevitable (in step with the glide, exactly one per transition), then we
+    // rebuild the strip re-centred on the new entry. The neighbour card is
+    // pooled, so the rebuild reuses the DOM/bitmap already on screen — no flash.
+    const curSlide = () => strip.children[centerIdx];
+    // speed = |release velocity| in px/ms (0 for wheel / a distance-only commit).
+    const commitTo = (entry, dir, speed) => {
+      if (navigating) return;
+      navigating = true;
+      playFlipSound();
+      const target = base() + (dir === "older" ? H() : -H());   // older is above → strip moves down
+      const dist = Math.abs(target - curY) || H();
+      // Duration from the finger's speed → the glide continues at ~that speed
+      // (no lag/"pressure"); clamped so a crawl or a rocket both stay sane.
+      const raw = speed > 0 ? SWIPE.GLIDE_SCALE * dist / speed : 320;
+      const ms = Math.max(SWIPE.GLIDE_MIN, Math.min(SWIPE.GLIDE_MAX, raw));
+      let done = false;
+      const finish = () => {
+        if (done) return; done = true;
+        strip.removeEventListener("transitionend", onEnd);
+        if (_stageId === centerEntry.id) buildFeed(entry, isHome);
+      };
+      const onEnd = (e) => { if (e.target === strip && e.propertyName === "transform") finish(); };
+      strip.addEventListener("transitionend", onEnd);
+      setY(target, ms);
+      setTimeout(finish, ms + 80);    // fallback if transitionend never fires
     };
 
-    const onSettle = () => {
-      if (_feedSettling || _stageId !== centerEntry.id) return;
-      const h = feed.clientHeight;
-      const idx = Math.round(feed.scrollTop / h);
-      if (idx === centerIdx) return;   // still centered — nothing to do
-      if (idx < centerIdx && olderE) { _feedSettling = true; if (!soundDone) { soundDone = true; playFlipSound(); } buildFeed(olderE, isHome); }
-      else if (idx > centerIdx && newerE) { _feedSettling = true; if (!soundDone) { soundDone = true; playFlipSound(); } buildFeed(newerE, isHome); }
-      else { feed.scrollTop = centerIdx * h; }   // defensive — no slide exists that way
+    // Edge feedback when swiping past the newest/oldest (no slide that way).
+    const edgeToast = (dir) => {
+      if (dir === "newer" && !nCtl) toast(listMode ? "End of list reached" : "Guru's latest msg reached", { red: true, pos: "down" });
+      else if (dir === "older" && !oCtl) toast(listMode ? "Start of list reached" : "Guru's first msg reached", { red: true, pos: "up" });
     };
-    let settleTimer = null;
-    feed.addEventListener("scrollend", onSettle);
-    // Fallback for WebViews without the 'scrollend' event: settle-by-debounce.
-    feed.addEventListener("scroll", () => { maybeFlipSound(); clearTimeout(settleTimer); settleTimer = setTimeout(onSettle, 130); }, { passive: true });
 
-    // Edge-attempt toasts: with no end-pages the feed can't move past a
-    // boundary, so detect the ATTEMPT from the gesture — finger direction at
-    // an edge with no entry that way. Position follows the direction: pushing
-    // past the newest → low on screen; past the first/start → high.
-    const atTop = () => feed.scrollTop <= 2;
-    const atBottom = () => feed.scrollTop >= feed.scrollHeight - feed.clientHeight - 2;
-    const edgeToast = (dir) => {   // dir: "newer" | "older" → true if toast shown
-      if (dir === "newer" && !newerE && atBottom()) {
-        toast(listMode ? "End of list reached" : "Guru's latest msg reached", { red: true, pos: "down" });
-        return true;
-      }
-      if (dir === "older" && !olderE && atTop()) {
-        toast(listMode ? "Start of list reached" : "Guru's first msg reached", { red: true, pos: "up" });
-        return true;
-      }
-      return false;
+    // Would the CURRENT slide's own extras-scroll consume this drag first?
+    // dy > 0 = finger down (wants older / scroll up); dy < 0 = finger up (newer / scroll down).
+    const innerCanScroll = (dy) => {
+      const s = curSlide(); if (!s) return false;
+      if (!s.querySelector(".m-has-extras")) return false;   // data gate: only real extra-page entries scroll
+      const max = s.scrollHeight - s.clientHeight;
+      if (max <= SWIPE.EXTRAS_MIN) return false;   // ignore phantom sub-px overflow (see EXTRAS_MIN)
+      return dy > 0 ? s.scrollTop > 0 : s.scrollTop < max - 1;
     };
-    let touchY = null, edgeToasted = false;
-    feed.addEventListener("touchstart", (ev) => { fingerDown = true; touchY = ev.touches[0].clientY; edgeToasted = false; }, { passive: true });
-    feed.addEventListener("touchmove", (ev) => {
-      if (touchY === null || edgeToasted) return;
-      const dy = ev.touches[0].clientY - touchY;
-      if (dy < -26) edgeToasted = edgeToast("newer");        // finger up → wants newer
-      else if (dy > 26) edgeToasted = edgeToast("older");    // finger down → wants older
+
+    // ---- gesture: finger-follows drag, commit on distance OR velocity ------
+    // Release velocity is measured over a short RECENT window (the last ≤100ms
+    // of samples), not the final two points — a fast flick that happens to end
+    // on one slow/stale sample would otherwise read as ~0 velocity and drop the
+    // swipe (the original "fast swipe needs two tries" bug, reborn). The window
+    // also lets a deliberate "flick then hold" correctly read as a cancel.
+    let startY = 0, lastY = 0, mode = null;    // mode: null | "scroll" | "nav"
+    let samples = [];                          // recent {t,y} for release velocity
+    const pushSample = (t, y) => { samples.push({ t, y }); while (samples.length > 1 && t - samples[0].t > 100) samples.shift(); };
+    feed.addEventListener("touchstart", (e) => {
+      if (navigating || e.touches.length !== 1) return;
+      dragging = true; mode = null;
+      startY = lastY = e.touches[0].clientY;
+      samples = []; pushSample(Date.now(), startY);
     }, { passive: true });
-    feed.addEventListener("touchend", (ev) => {
-      if (!ev.touches.length) { fingerDown = false; maybeFlipSound(); }   // release-with-commit
-    }, { passive: true });
-    feed.addEventListener("touchcancel", () => { fingerDown = false; }, { passive: true });
+    feed.addEventListener("touchmove", (e) => {
+      if (!dragging || e.touches.length !== 1) return;
+      const y = e.touches[0].clientY, dy = y - startY;
+      if (mode === null) {
+        if (Math.abs(dy) < SWIPE.DECIDE_SLOP) { lastY = y; return; }
+        mode = innerCanScroll(dy) ? "scroll" : "nav";   // extras win until they hit their edge
+      }
+      if (mode === "scroll") { lastY = y; return; }       // let the browser scroll extras
+      if (e.cancelable) e.preventDefault();               // nav mode — we own the gesture
+      let move = dy;
+      const wantOlder = dy > 0;
+      if ((wantOlder && !oCtl) || (!wantOlder && !nCtl)) move = dy * SWIPE.EDGE_RESIST;   // rubber-band at a boundary
+      setY(base() + move, 0);
+      lastY = y; pushSample(Date.now(), y);
+    }, { passive: false });
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      if (mode !== "nav") return;
+      const dy = lastY - startY, thresh = H() * SWIPE.COMMIT_FRAC;
+      const s0 = samples[0], s1 = samples[samples.length - 1], dt = s1.t - s0.t;
+      const vy = dt > 0 ? (s1.y - s0.y) / dt : 0;          // px/ms; − = up = newer
+      const flungNewer = -vy > SWIPE.COMMIT_VEL, flungOlder = vy > SWIPE.COMMIT_VEL;
+      const speed = Math.abs(vy);                          // px/ms → the glide inherits it
+      if (nCtl && (flungNewer || (-dy > thresh && !flungOlder))) commitTo(newerE, "newer", speed);
+      else if (oCtl && (flungOlder || (dy > thresh && !flungNewer))) commitTo(olderE, "older", speed);
+      else {
+        setY(base(), SWIPE.CANCEL_MS);                     // not enough → spring back
+        if (dy > SWIPE.DECIDE_SLOP && !oCtl) edgeToast("older");
+        else if (dy < -SWIPE.DECIDE_SLOP && !nCtl) edgeToast("newer");
+      }
+    };
+    feed.addEventListener("touchend", (e) => { if (!e.touches.length) endDrag(); }, { passive: true });
+    feed.addEventListener("touchcancel", endDrag, { passive: true });
+
+    // Desktop/browser test mode: the wheel steps one message (extras scroll first).
     let wheelCool = 0;
-    feed.addEventListener("wheel", (ev) => {                 // desktop/browser test mode
-      const now = Date.now();
-      if (now - wheelCool < 900) return;
-      if ((ev.deltaY > 0 && edgeToast("newer")) || (ev.deltaY < 0 && edgeToast("older"))) wheelCool = now;
+    feed.addEventListener("wheel", (e) => {
+      if (navigating || Date.now() - wheelCool < 440) return;
+      if (innerCanScroll(-e.deltaY)) return;              // extras scroll first
+      if (e.deltaY > 0) { if (nCtl) { wheelCool = Date.now(); commitTo(newerE, "newer", 0); } else edgeToast("newer"); }
+      else if (e.deltaY < 0) { if (oCtl) { wheelCool = Date.now(); commitTo(olderE, "older", 0); } else edgeToast("older"); }
     }, { passive: true });
 
     // ---- prefetch ±2 (the Phase-1.5 cache) ---------------------------------

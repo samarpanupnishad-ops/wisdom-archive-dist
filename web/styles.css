@@ -1191,26 +1191,39 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
   font: 600 11.5px var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
 }
 
-/* ---- vertical scroll-snap feed (replaces the old left/right swipe) ----
-   OLDER (top) · CURRENT (middle) · NEWER (bottom). Swiping down reveals
-   older (a tick sound plays), swiping up reveals newer — Reels/Shorts
-   convention. Each slide is a full-screen .m-viewer card. */
+/* ---- vertical transform-driven feed (8.17: replaced native scroll-snap) ----
+   OLDER (top) · CURRENT (middle) · NEWER (bottom), stacked in a strip that JS
+   translates. Swiping down reveals older (a tick sound plays), swiping up
+   reveals newer — Reels/Shorts convention. Each slide is a full-screen
+   .m-viewer card. The strip is moved by translateY, NOT by scrolling: native
+   fling+snap dropped fast swipes (needed two tries). Extras still scroll
+   natively inside the current slide (see buildFeed's innerCanScroll). */
 .m-feed {
   /* .m-vpanel (see above) takes the top inset instead of .m-top; 64px is the
-     bottom bar's exact height — the image sits FLUSH against it, no gap. */
-  height: calc(100vh - (52px + env(safe-area-inset-top)) - 64px - env(safe-area-inset-bottom));
-  overflow-y: scroll; scroll-snap-type: y mandatory;
-  -webkit-overflow-scrolling: touch;
-  /* The off-screen older/newer slides' heights settle asynchronously as their
-     images load; without this the browser's scroll-anchoring silently drags
-     scrollTop away from dead-center to "compensate", which throws off the
-     settle-detection math. This feed manages its own scroll position. */
-  overflow-anchor: none;
+     bottom bar's exact height — the image sits FLUSH against it, no gap.
+     Exposed as a var so each slide can be sized to exactly one screen. */
+  --m-feedh: calc(100vh - (52px + env(safe-area-inset-top)) - 64px - env(safe-area-inset-bottom));
+  height: var(--m-feedh);
+  overflow: hidden; position: relative;
+  touch-action: pan-y;   /* allow native extras-scroll; JS owns navigation via preventDefault */
+}
+.m-strip {
+  /* Keep the strip on its own compositor layer so the glide is GPU-driven and
+     the layer isn't torn down (repaint "snap") the instant a flip settles. */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
 }
 .m-feedslide {
-  height: 100%; scroll-snap-align: start; scroll-snap-stop: always;
+  height: var(--m-feedh);   /* each slide is exactly one screen */
   display: flex; overflow-y: auto; overflow-anchor: none;
+  -webkit-overflow-scrolling: touch;
+  /* Default: JS fully owns the gesture — the browser must NOT natively pan a
+     slide (phantom sub-px overflow on high-DPI phones was letting it quietly
+     eat the first swipe-up → "two swipes on some images"). Only slides that
+     genuinely have extra pages re-enable native vertical scroll below. */
+  touch-action: none;
 }
+.m-feedslide:has(.m-viewer.m-has-extras) { touch-action: pan-y; }
 /* Scrollbar hiding (decided 8.45) — DELETE THIS BLOCK to restore the scroll
    indicators in the reading feed. Purely cosmetic: scrolling, snapping and
    the extras-pages scroll all behave identically without the painted bars. */
@@ -1266,6 +1279,10 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
   padding: 0 20px; text-align: center; color: var(--muted); font: 500 15px var(--sans);
 }
 .m-extras { max-width: 640px; margin: 14px auto 0; }
+/* No extra pages → no box at all, so an empty extras div can't add phantom
+   height that turns a full-screen slide into a (barely) scrollable one and
+   eats the first swipe-up. See EXTRAS_MIN in app.js. */
+.m-extras:empty { display: none; margin: 0; }
 .m-extras img { display: block; width: 100%; border-radius: 14px; margin-bottom: 14px; box-shadow: 0 6px 26px rgba(40,30,60,.14); }
 
 /* Standalone single-message view (Lucky Msg / a typed-in number) — same
