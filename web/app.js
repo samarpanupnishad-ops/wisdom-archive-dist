@@ -3238,7 +3238,7 @@ const MOBILE_UI = (() => {
     EASE: "cubic-bezier(0.2, 0.3, 0.2, 1)",
     COMMIT_FRAC: 0.16, COMMIT_VEL: 0.45, EDGE_RESIST: 0.35, DECIDE_SLOP: 8, EXTRAS_MIN: 40,
   };
-  async function buildFeed(centerEntry, isHome) {
+  async function buildFeed(centerEntry, isHome, enter) {
     setChrome(isHome ? "home" : "viewer", "Samarpan Upnishad", centerEntry);
     _stageId = centerEntry.id;
     store.setLastViewed(centerEntry.id);
@@ -3304,7 +3304,16 @@ const MOBILE_UI = (() => {
       strip.style.transition = ms ? `transform ${ms}ms ${SWIPE.EASE}` : "none";
       strip.style.transform = `translate3d(0,${y}px,0)`;
     };
-    setY(base(), 0);                             // land on the current slide, no animation
+    // Land on the current slide. After a swipe-commit we mount ALREADY centred
+    // on the new entry but offset to where the finger left the neighbour, then
+    // glide to centre — so the glide runs on THIS (fresh, unlocked) strip and a
+    // rapid next swipe can grab it mid-glide instead of being dropped.
+    if (enter && enter.ms) {
+      setY(base() + enter.offset, 0);
+      requestAnimationFrame(() => { if (feed.isConnected) setY(base(), enter.ms); });
+    } else {
+      setY(base(), 0);
+    }
     // Keep the resting position correct across an orientation/size change while
     // the user is just looking (not mid-gesture or mid-flip).
     let dragging = false, navigating = false;
@@ -3315,27 +3324,24 @@ const MOBILE_UI = (() => {
     // rebuild the strip re-centred on the new entry. The neighbour card is
     // pooled, so the rebuild reuses the DOM/bitmap already on screen — no flash.
     const curSlide = () => strip.children[centerIdx];
-    // speed = |release velocity| in px/ms (0 for wheel / a distance-only commit).
+    // Commit a navigation. Instead of gliding the OLD strip and rebuilding AFTER
+    // (which locked out the next swipe for the whole glide → rapid swipes were
+    // dropped and didn't track the finger), we rebuild IMMEDIATELY centred on the
+    // neighbour and hand it an `enter` offset so it glides into place on the new,
+    // unlocked strip. `navigating` is therefore held only across the (fast, local)
+    // rebuild, not the animation. speed = |release velocity| px/ms (0 for wheel).
     const commitTo = (entry, dir, speed) => {
       if (navigating) return;
       navigating = true;
       playFlipSound();
-      const target = base() + (dir === "older" ? H() : -H());   // older is above → strip moves down
-      const dist = Math.abs(target - curY) || H();
-      // Duration from the finger's speed → the glide continues at ~that speed
-      // (no lag/"pressure"); clamped so a crawl or a rocket both stay sane.
+      const disp = curY - base();                                  // finger displacement from centre
+      const offset = (dir === "newer" ? H() : -H()) + disp;        // where that neighbour sits on screen now
+      const dist = Math.abs(offset) || H();
+      // Glide duration from the finger's speed → continues at ~that speed (no
+      // lag/"pressure"); clamped so a crawl or a rocket both stay sane.
       const raw = speed > 0 ? SWIPE.GLIDE_SCALE * dist / speed : 320;
       const ms = Math.max(SWIPE.GLIDE_MIN, Math.min(SWIPE.GLIDE_MAX, raw));
-      let done = false;
-      const finish = () => {
-        if (done) return; done = true;
-        strip.removeEventListener("transitionend", onEnd);
-        if (_stageId === centerEntry.id) buildFeed(entry, isHome);
-      };
-      const onEnd = (e) => { if (e.target === strip && e.propertyName === "transform") finish(); };
-      strip.addEventListener("transitionend", onEnd);
-      setY(target, ms);
-      setTimeout(finish, ms + 80);    // fallback if transitionend never fires
+      buildFeed(entry, isHome, { offset, ms });
     };
 
     // Edge feedback when swiping past the newest/oldest (no slide that way).
@@ -3354,49 +3360,55 @@ const MOBILE_UI = (() => {
       return dy > 0 ? s.scrollTop > 0 : s.scrollTop < max - 1;
     };
 
-    // ---- gesture: finger-follows drag, commit on distance OR velocity ------
-    // Release velocity is measured over a short RECENT window (the last ≤100ms
-    // of samples), not the final two points — a fast flick that happens to end
-    // on one slow/stale sample would otherwise read as ~0 velocity and drop the
-    // swipe (the original "fast swipe needs two tries" bug, reborn). The window
-    // also lets a deliberate "flick then hold" correctly read as a cancel.
-    let startY = 0, lastY = 0, mode = null;    // mode: null | "scroll" | "nav"
-    let samples = [];                          // recent {t,y} for release velocity
+    // ---- gesture: interruptible, position-based drag -----------------------
+    // The drag tracks the strip's ACTUAL position (from wherever it is at
+    // touchstart), so a swipe can grab the strip mid-glide and never gets
+    // dropped — the cause of "rapid swipes need two tries and don't follow the
+    // finger". Commit decides on this gesture's finger distance OR velocity
+    // (velocity from the last ≤100ms window, so a fast flick that ends on one
+    // stale sample still counts; a flick-then-hold reads as a cancel).
+    let fingerY0 = 0, stripY0 = 0, mode = null;   // mode: null | "scroll" | "nav"
+    let samples = [];                             // recent {t,y} finger samples for release velocity
     const pushSample = (t, y) => { samples.push({ t, y }); while (samples.length > 1 && t - samples[0].t > 100) samples.shift(); };
+    const renderedY = () => {                     // strip's live VISUAL translateY (mid-glide included)
+      try { return new DOMMatrixReadOnly(getComputedStyle(strip).transform).m42; } catch { return curY; }
+    };
     feed.addEventListener("touchstart", (e) => {
       if (navigating || e.touches.length !== 1) return;
+      stripY0 = renderedY();                      // grab the strip where it visually is …
+      setY(stripY0, 0);                           // … and freeze it there (interrupts any glide)
       dragging = true; mode = null;
-      startY = lastY = e.touches[0].clientY;
-      samples = []; pushSample(Date.now(), startY);
+      fingerY0 = e.touches[0].clientY;
+      samples = []; pushSample(Date.now(), fingerY0);
     }, { passive: true });
     feed.addEventListener("touchmove", (e) => {
       if (!dragging || e.touches.length !== 1) return;
-      const y = e.touches[0].clientY, dy = y - startY;
+      const y = e.touches[0].clientY, dy = y - fingerY0;
       if (mode === null) {
-        if (Math.abs(dy) < SWIPE.DECIDE_SLOP) { lastY = y; return; }
+        if (Math.abs(dy) < SWIPE.DECIDE_SLOP) return;
         mode = innerCanScroll(dy) ? "scroll" : "nav";   // extras win until they hit their edge
       }
-      if (mode === "scroll") { lastY = y; return; }       // let the browser scroll extras
-      if (e.cancelable) e.preventDefault();               // nav mode — we own the gesture
-      let move = dy;
-      const wantOlder = dy > 0;
-      if ((wantOlder && !oCtl) || (!wantOlder && !nCtl)) move = dy * SWIPE.EDGE_RESIST;   // rubber-band at a boundary
-      setY(base() + move, 0);
-      lastY = y; pushSample(Date.now(), y);
+      if (mode === "scroll") return;              // let the browser scroll extras
+      if (e.cancelable) e.preventDefault();       // nav mode — we own the gesture
+      let sy = stripY0 + dy;
+      const disp = sy - base();
+      if ((disp > 0 && !oCtl) || (disp < 0 && !nCtl)) sy = base() + disp * SWIPE.EDGE_RESIST;   // rubber-band at a boundary
+      setY(sy, 0);
+      pushSample(Date.now(), y);
     }, { passive: false });
     const endDrag = () => {
       if (!dragging) return;
       dragging = false;
       if (mode !== "nav") return;
-      const dy = lastY - startY, thresh = H() * SWIPE.COMMIT_FRAC;
       const s0 = samples[0], s1 = samples[samples.length - 1], dt = s1.t - s0.t;
+      const dy = s1.y - fingerY0, thresh = H() * SWIPE.COMMIT_FRAC;   // this gesture's finger distance
       const vy = dt > 0 ? (s1.y - s0.y) / dt : 0;          // px/ms; − = up = newer
       const flungNewer = -vy > SWIPE.COMMIT_VEL, flungOlder = vy > SWIPE.COMMIT_VEL;
       const speed = Math.abs(vy);                          // px/ms → the glide inherits it
       if (nCtl && (flungNewer || (-dy > thresh && !flungOlder))) commitTo(newerE, "newer", speed);
       else if (oCtl && (flungOlder || (dy > thresh && !flungNewer))) commitTo(olderE, "older", speed);
       else {
-        setY(base(), SWIPE.CANCEL_MS);                     // not enough → spring back
+        setY(base(), SWIPE.CANCEL_MS);                     // not enough → spring back to centre
         if (dy > SWIPE.DECIDE_SLOP && !oCtl) edgeToast("older");
         else if (dy < -SWIPE.DECIDE_SLOP && !nCtl) edgeToast("newer");
       }
