@@ -2782,7 +2782,7 @@ const MOBILE_UI = (() => {
     // ---- rolling wheel: a strip of ALL values translates inside a 3-row
     // viewport; the pink band marks the centred value. Dragging moves the strip
     // with the finger (GPU transform), snapping to the nearest value on release.
-    const ROW = 34, CENTER = 1;                          // 3 visible rows, selected in the middle slot
+    const ROW = 34, CENTER = 2;                          // 5 visible rows, selected in the middle slot
     const stripOf = (w) => wEls[w].firstElementChild;
     const restY = (w) => (CENTER - wData(w).idx) * ROW;   // translateY that centres the current value
     const setWY = (w, y, anim) => { const s = stripOf(w); if (!s) return; s.style.transition = anim ? "transform .18s ease-out" : "none"; s.style.transform = `translateY(${y}px)`; };
@@ -2816,14 +2816,17 @@ const MOBILE_UI = (() => {
     }
     const render = () => { renderWheels(); renderHead(); renderGrid(); };
     render();
+    // Haptic tick — fires on spinner steps, month carousel, day tap, and Set.
+    // Needs the native VIBRATE permission (AndroidManifest) to actually buzz;
+    // silently no-ops without it (e.g. desktop, or an APK missing the permission).
+    const haptic = () => { try { navigator.vibrate && navigator.vibrate(6); } catch {} };
 
-    q(".m-dp-grid").addEventListener("click", (e) => { const b = e.target.closest(".m-dp-day"); if (!b || b.disabled) return; sel.d = +b.dataset.d; render(); });
+    q(".m-dp-grid").addEventListener("click", (e) => { const b = e.target.closest(".m-dp-day"); if (!b || b.disabled) return; sel.d = +b.dataset.d; haptic(); render(); });
     ov.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
-      if (b.disabled) return; let m = sel.m + (+b.dataset.nav), y = sel.y;
+      if (b.disabled) return; haptic(); let m = sel.m + (+b.dataset.nav), y = sel.y;
       if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
       sel.y = y; sel.m = m; clamp(); render();
     }));
-    const haptic = () => { try { navigator.vibrate && navigator.vibrate(6); } catch {} };
     // Drag rolls the strip with the finger; the calendar grid is rebuilt only on
     // RELEASE (not every step) — that's what makes the spin crisp. The value is
     // committed live (so the header tracks the roll) but the other wheels + grid
@@ -2863,7 +2866,7 @@ const MOBILE_UI = (() => {
     ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
     q('[data-act="clear"]').addEventListener("click", () => { const t = new Date(); sel = dpParse(clampIso(dpIso(t.getFullYear(), t.getMonth(), t.getDate()))); clamp(); render(); });
     q('[data-act="cancel"]').addEventListener("click", close);
-    q('[data-act="set"]').addEventListener("click", () => { const chosen = dpIso(sel.y, sel.m, sel.d); close(); onSet(chosen); });
+    q('[data-act="set"]').addEventListener("click", () => { haptic(); const chosen = dpIso(sel.y, sel.m, sel.d); close(); onSet(chosen); });
   }
 
   // ---- user display preferences (zoom bar side) -----------

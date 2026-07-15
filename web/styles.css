@@ -1301,11 +1301,16 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
 }
 .m-datepill::after { content: "▾"; font-size: 11px; opacity: .7; }
 .m-dp-scrim {
-  position: fixed; inset: 0; z-index: 6000; padding: 14px;
-  background: rgba(30,20,10,.45); display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; z-index: 6000;
+  /* Top-anchored: starts just below the top panel, and its max-height (below)
+     keeps its bottom clear of the 64px bottom bar — never touching it. */
+  padding: calc(env(safe-area-inset-top) + 10px) 14px 0;
+  background: rgba(30,20,10,.45); display: flex; align-items: flex-start; justify-content: center;
 }
 .m-dp {
-  width: min(342px, 94vw); max-height: 92vh; overflow: auto;
+  width: min(342px, 94vw);
+  max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 84px);
+  overflow: auto;
   background: var(--surface); border-radius: 20px; box-shadow: var(--shadow-lg);
   font-family: var(--sans); color: var(--text);
 }
@@ -1315,16 +1320,16 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
    --dp-dark       : dark pink accent (dot, Set, selected day, header text) */
 .m-dp { --dp-pink: #fce4ec; --dp-pink-deep: #f7d6e4; --dp-dark: #c2185b; }
 /* Slim single-line header (day, date, month, year on one line). */
-.m-dp-head { background: var(--dp-pink); color: var(--dp-dark); padding: 9px 18px; }
-.m-dp-d { font-size: 17px; font-weight: 500; }
+.m-dp-head { background: var(--dp-pink); color: var(--dp-dark); padding: 7px 18px; }
+.m-dp-d { font-size: 15px; font-weight: 500; }
 /* 3-row rolling spinner: each wheel is a 3-row-tall viewport; a strip of all
    values translates inside it (GPU transform), edges faded by a mask. The pink
    band marks the centred (selected) value. */
 .m-dp-spin { position: relative; display: flex; padding: 8px 16px 2px; }
-.m-dp-selrow { position: absolute; left: 12px; right: 12px; top: 42px; height: 34px; background: var(--dp-pink-deep); border-radius: 9px; pointer-events: none; }
-.m-dp-wheel { position: relative; flex: 1; height: 102px; overflow: hidden; text-align: center; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 34%, #000 66%, transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 34%, #000 66%, transparent 100%); }
+.m-dp-selrow { position: absolute; left: 12px; right: 12px; top: 76px; height: 34px; background: var(--dp-pink-deep); border-radius: 9px; pointer-events: none; }
+.m-dp-wheel { position: relative; flex: 1; height: 170px; overflow: hidden; text-align: center; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 30%, #000 70%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 30%, #000 70%, transparent 100%); }
 .m-dp-strip { will-change: transform; }
 .m-dp-row { height: 34px; line-height: 34px; font-size: 15px; }
 .m-dp-row.sel { font-weight: 500; color: var(--dp-dark); }
