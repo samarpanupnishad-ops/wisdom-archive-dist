@@ -2505,7 +2505,7 @@ const MOBILE_UI = (() => {
       <div class="m-title" id="m-title">Samarpan Upnishad</div>
     </header>
     <div class="m-vpanel" id="m-vpanel">
-      <span class="m-vdate" id="m-panel-date"></span>
+      <button class="m-vdate m-datepill" id="m-panel-date" type="button"></button>
       <div class="m-vacts">
         <button class="m-vact m-vact-fav" id="m-panel-fav" title="Add to Favorites" aria-label="Add to Favorites">${HEART_ICON}</button>
         <button class="m-vact m-vact-share" id="m-panel-share" title="Share" aria-label="Share">${SHARE_ICON}</button>
@@ -2614,6 +2614,7 @@ const MOBILE_UI = (() => {
     if (app && app.exitApp) app.exitApp(); else hideExitSheet();   // browser test mode
   });
   function onHardwareBack() {
+    if (_dpClose && _dpClose()) return;
     if (hideExitSheet()) return;
     if (exitZoom()) return;
     if (closeDrawer()) return;
@@ -2640,6 +2641,203 @@ const MOBILE_UI = (() => {
     document.body.classList.toggle("m-notop", isImageScreen);
     $("m-back").style.visibility = mode === "home" ? "hidden" : "visible";
     $("m-title").textContent = title || "Samarpan Upnishad";
+  }
+
+  // ==========================================================================
+  // Date picker (spinner + calendar). One combined view: coloured header, a
+  // Date·Month·Year spinner, then the month grid. Bounded to the wisdom data
+  // range; empty dates ARE selectable and show a message (Option B). Anushthan
+  // periods show their own message + a grid tint. Powers the top-panel date pill
+  // AND Search By → Date. Ships in app.js → OTA-updatable.
+  // ==========================================================================
+
+  // ---- OTA-EDITABLE: Anushthan periods (guru's msg intentionally not shared).
+  // Add inclusive "YYYY-MM-DD" ranges here and republish. String compare is
+  // safe for this fixed format. e.g. { from: "2025-01-12", to: "2025-01-20" }.
+  const ANUSHTHAN_RANGES = [
+  ];
+  const DP_MSG = {
+    notfound: "Guru's msg not found. Contact to admin. Jai Baba Swami",
+    anushthan: "Anusthan time. so no daily msgs. Jai Baba Swami",
+  };
+  const isAnushthan = (s) => ANUSHTHAN_RANGES.some((r) => s >= r.from && s <= r.to);
+
+  // ---- localized labels (follow the हिंदी/English toggle; numerals stay 0-9)
+  const DP_WD = { en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                  hi: ["रवि", "सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि"] };
+  const DP_MON = { en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+                   hi: ["जन", "फ़र", "मार्च", "अप्रैल", "मई", "जून", "जुल", "अग", "सित", "अक्टू", "नव", "दिस"] };
+  const DP_MONF = { en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+                    hi: ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"] };
+  const dpLang = () => "en";   // calendar + pill always English, regardless of the app's हिंदी/English toggle
+  const dpPad = (n) => (n < 10 ? "0" + n : "" + n);
+  const dpIso = (y, m, d) => y + "-" + dpPad(m + 1) + "-" + dpPad(d);
+  const dpDim = (y, m) => new Date(y, m + 1, 0).getDate();
+  const dpParse = (s) => { const p = (s || "").split("-"); return { y: +p[0], m: (+p[1]) - 1, d: +p[2] }; };
+  function dpPillText(s) {
+    const t = dpParse(s); if (!t.y) return "Select date";
+    const L = dpLang(), dt = new Date(t.y, t.m, t.d);
+    return DP_WD[L][dt.getDay()] + ", " + t.d + " " + DP_MON[L][t.m] + " " + t.y;
+  }
+
+  // ---- availability (ONE fetch: every date that has wisdom) ----------------
+  let _dpData = null;
+  async function dpData() {
+    if (_dpData) return _dpData;
+    let periods = [];
+    try { periods = (await api("/api/browse?group=date")).periods || []; } catch {}
+    const sorted = periods.map((p) => p.period).filter(Boolean).sort();
+    _dpData = {
+      avail: new Set(sorted), sorted,
+      years: [...new Set(sorted.map((s) => +s.slice(0, 4)))].sort((a, b) => a - b),
+      min: sorted[0] || null, max: sorted[sorted.length - 1] || null,
+    };
+    return _dpData;
+  }
+  function dpNearest(sortedAsc, s, dir) {
+    if (dir === "newer") { for (let i = 0; i < sortedAsc.length; i++) if (sortedAsc[i] > s) return sortedAsc[i]; return null; }
+    for (let i = sortedAsc.length - 1; i >= 0; i--) if (sortedAsc[i] < s) return sortedAsc[i]; return null;
+  }
+
+  // ---- resolve a chosen date → open the reader, or a message screen --------
+  async function goDate(s) {
+    let res; try { res = await api("/api/browse?date=" + encodeURIComponent(s)); } catch { res = { results: [] }; }
+    if (res.results && res.results.length) go("#/entry/" + res.results[0].id);
+    else go("#/m/nomsg?d=" + s);
+  }
+
+  // ---- message screen for an empty / Anushthan date ------------------------
+  async function renderDateMessage(s) {
+    if (!s) return go("#/");
+    setChrome("viewer", "Samarpan Upnishad", null);
+    _stageId = null; _feedCards = [];
+    const kind = isAnushthan(s) ? "anushthan" : "notfound";
+    const dEl = $("m-panel-date");
+    if (dEl) { dEl.textContent = dpPillText(s); dEl.onclick = () => openDatePicker(s, goDate); }
+    ["m-panel-fav", "m-panel-share", "m-panel-dl"].forEach((id) => { const b = $(id); if (b) b.classList.add("m-vact-disabled"); });
+    const wrap = el(`<div class="m-msgwrap"><div class="m-msg">
+      <div class="m-msg-ico">🕉️</div>
+      <div class="m-msg-date">${escapeHtml(dpPillText(s))}</div>
+      <div class="m-msg-text">${escapeHtml(DP_MSG[kind])}</div>
+      <div class="m-msg-hint">Swipe up or down for the nearest Guru's msg</div>
+    </div></div>`);
+    $view.replaceChildren(wrap);
+    const { sorted } = await dpData();
+    const goNearest = (dir) => {
+      const nd = dpNearest(sorted, s, dir);
+      if (!nd) { toast(dir === "newer" ? "Guru's latest msg reached" : "Guru's first msg reached", { red: true, pos: dir === "newer" ? "down" : "up" }); return; }
+      goDate(nd);
+    };
+    let sy = null;
+    wrap.addEventListener("touchstart", (e) => { if (e.touches.length === 1) sy = e.touches[0].clientY; }, { passive: true });
+    wrap.addEventListener("touchend", (e) => {
+      if (sy === null) return; const dy = ((e.changedTouches[0] || {}).clientY || sy) - sy; sy = null;
+      if (dy < -50) goNearest("newer"); else if (dy > 50) goNearest("older");
+    }, { passive: true });
+    wrap.addEventListener("wheel", (e) => { if (e.deltaY > 0) goNearest("newer"); else if (e.deltaY < 0) goNearest("older"); }, { passive: true });
+  }
+
+  // ---- the picker itself ---------------------------------------------------
+  let _dpClose = null;
+  async function openDatePicker(currentIso, onSet) {
+    const data = await dpData();
+    if (!data.min) { toast("No wisdom available yet."); return; }
+    const mn = dpParse(data.min), mx = dpParse(data.max);
+    const inRange = (s) => s >= data.min && s <= data.max;
+    const clampIso = (s) => (s < data.min ? data.min : s > data.max ? data.max : s);
+    let start = currentIso && inRange(currentIso) ? currentIso : null;
+    if (!start) { const t = new Date(), ti = dpIso(t.getFullYear(), t.getMonth(), t.getDate()); start = inRange(ti) ? ti : data.max; }
+    let sel = dpParse(start);
+
+    const monthsFor = (y) => { const lo = y === mn.y ? mn.m : 0, hi = y === mx.y ? mx.m : 11, a = []; for (let m = lo; m <= hi; m++) a.push(m); return a; };
+    const daysFor = (y, m) => { const lo = (y === mn.y && m === mn.m) ? mn.d : 1, hi = (y === mx.y && m === mx.m) ? mx.d : dpDim(y, m), a = []; for (let d = lo; d <= hi; d++) a.push(d); return a; };
+    const clamp = () => {
+      sel.y = Math.max(mn.y, Math.min(mx.y, sel.y));
+      const ms = monthsFor(sel.y); sel.m = Math.max(ms[0], Math.min(ms[ms.length - 1], sel.m));
+      const ds = daysFor(sel.y, sel.m); sel.d = Math.max(ds[0], Math.min(ds[ds.length - 1], sel.d));
+    };
+    clamp();
+
+    const ov = el(`<div class="m-dp-scrim"><div class="m-dp" role="dialog" aria-label="Pick a date">
+      <div class="m-dp-head"><div class="m-dp-y"></div><div class="m-dp-d"></div></div>
+      <div class="m-dp-spin"><div class="m-dp-selrow" aria-hidden="true"></div>
+        <div class="m-dp-wheel" data-w="d"></div><div class="m-dp-wheel" data-w="m"></div><div class="m-dp-wheel" data-w="y"></div></div>
+      <div class="m-dp-nav"><button class="m-dp-arrow" data-nav="-1" aria-label="Previous month">‹</button>
+        <div class="m-dp-mlabel"></div>
+        <button class="m-dp-arrow" data-nav="1" aria-label="Next month">›</button></div>
+      <div class="m-dp-wd"></div><div class="m-dp-grid"></div>
+      <div class="m-dp-btns"><button class="m-dp-btn" data-act="clear">Clear</button>
+        <button class="m-dp-btn" data-act="cancel">Cancel</button>
+        <button class="m-dp-btn m-dp-set" data-act="set">Set</button></div>
+    </div></div>`);
+    document.body.appendChild(ov);
+    const q = (s) => ov.querySelector(s);
+    const wEls = { d: q('[data-w="d"]'), m: q('[data-w="m"]'), y: q('[data-w="y"]') };
+
+    const wData = (w) => {
+      if (w === "y") { const list = data.years; return { list, idx: list.indexOf(sel.y), fmt: (v) => "" + v, set: (v) => { sel.y = v; clamp(); } }; }
+      if (w === "m") { const list = monthsFor(sel.y); return { list, idx: list.indexOf(sel.m), fmt: (v) => DP_MON[dpLang()][v], set: (v) => { sel.m = v; clamp(); } }; }
+      const list = daysFor(sel.y, sel.m); return { list, idx: list.indexOf(sel.d), fmt: (v) => dpPad(v), set: (v) => { sel.d = v; } };
+    };
+    function renderWheel(w) {
+      const wd = wData(w), rows = [];
+      for (let i = -2; i <= 2; i++) { const v = wd.list[wd.idx + i];
+        rows.push(`<div class="m-dp-row${i === 0 ? " sel" : ""}" style="opacity:${i === 0 ? 1 : Math.abs(i) === 1 ? .5 : .28}">${v == null ? "" : wd.fmt(v)}</div>`); }
+      wEls[w].innerHTML = rows.join("");
+    }
+    function renderHead() {
+      const L = dpLang(), dt = new Date(sel.y, sel.m, sel.d);
+      q(".m-dp-y").textContent = sel.y;
+      q(".m-dp-d").textContent = DP_WD[L][dt.getDay()] + ", " + sel.d + " " + DP_MON[L][sel.m];
+      q(".m-dp-mlabel").textContent = DP_MONF[L][sel.m] + " " + sel.y;
+      q('[data-nav="-1"]').disabled = (sel.y === mn.y && sel.m === mn.m);
+      q('[data-nav="1"]').disabled = (sel.y === mx.y && sel.m === mx.m);
+    }
+    function renderGrid() {
+      const L = dpLang();
+      q(".m-dp-wd").innerHTML = DP_WD[L].map((w) => `<span>${w[0]}</span>`).join("");
+      const first = new Date(sel.y, sel.m, 1).getDay(), N = dpDim(sel.y, sel.m);
+      let h = "";
+      for (let b = 0; b < first; b++) h += "<span></span>";
+      for (let d = 1; d <= N; d++) {
+        const s = dpIso(sel.y, sel.m, d), ok = inRange(s), selD = d === sel.d, dot = data.avail.has(s), anu = isAnushthan(s) && ok;
+        h += `<button class="m-dp-day${selD ? " sel" : ""}${anu ? " anu" : ""}" data-d="${d}"${ok ? "" : " disabled"}><span>${d}</span><i class="m-dp-dot" style="opacity:${dot ? 1 : 0}"></i></button>`;
+      }
+      q(".m-dp-grid").innerHTML = h;
+    }
+    const render = () => { ["d", "m", "y"].forEach(renderWheel); renderHead(); renderGrid(); };
+    render();
+
+    q(".m-dp-grid").addEventListener("click", (e) => { const b = e.target.closest(".m-dp-day"); if (!b || b.disabled) return; sel.d = +b.dataset.d; render(); });
+    ov.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
+      if (b.disabled) return; let m = sel.m + (+b.dataset.nav), y = sel.y;
+      if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
+      sel.y = y; sel.m = m; clamp(); render();
+    }));
+    const ROW = 34;
+    ["d", "m", "y"].forEach((w) => {
+      const elw = wEls[w]; let sy0 = null, i0 = 0;
+      const begin = (yy) => { sy0 = yy; i0 = wData(w).idx; };
+      const move = (yy) => {
+        if (sy0 == null) return; const wd = wData(w);
+        const ni = Math.max(0, Math.min(wd.list.length - 1, i0 + Math.round((sy0 - yy) / ROW)));
+        if (ni !== wd.idx) { wd.set(wd.list[ni]); try { navigator.vibrate && navigator.vibrate(6); } catch {} render(); }
+      };
+      elw.addEventListener("touchstart", (e) => begin(e.touches[0].clientY), { passive: true });
+      elw.addEventListener("touchmove", (e) => move(e.touches[0].clientY), { passive: true });
+      elw.addEventListener("touchend", () => { sy0 = null; }, { passive: true });
+      elw.addEventListener("wheel", (e) => { e.preventDefault(); const wd = wData(w), ni = Math.max(0, Math.min(wd.list.length - 1, wd.idx + (e.deltaY > 0 ? 1 : -1))); if (ni !== wd.idx) { wd.set(wd.list[ni]); render(); } }, { passive: false });
+      elw.addEventListener("mousedown", (e) => { e.preventDefault(); begin(e.clientY); const mv = (ev) => move(ev.clientY), up = () => { sy0 = null; window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); }; window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up); });
+    });
+
+    const close = () => { if (!ov.parentNode) return; ov.remove(); _dpClose = null; document.removeEventListener("keydown", onKey); };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    _dpClose = () => { close(); return true; };
+    document.addEventListener("keydown", onKey);
+    ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+    q('[data-act="clear"]').addEventListener("click", () => { const t = new Date(); sel = dpParse(clampIso(dpIso(t.getFullYear(), t.getMonth(), t.getDate()))); clamp(); render(); });
+    q('[data-act="cancel"]').addEventListener("click", close);
+    q('[data-act="set"]').addEventListener("click", () => { const chosen = dpIso(sel.y, sel.m, sel.d); close(); onSet(chosen); });
   }
 
   // ---- user display preferences (zoom bar side) -----------
@@ -3006,7 +3204,13 @@ const MOBILE_UI = (() => {
   // future tap-to-open-calendar wiring on the date has a single stable node
   // to attach to, instead of 3 recycled copies in the scrolling feed.
   function wireVPanel(e, curImg, curName, curCaption) {
-    $("m-panel-date").textContent = fmtDate(e.date) + (e.weekday ? " · " + e.weekday : "");
+    // The date is now a tappable pill (replaces the old date/day text) that
+    // opens the date picker; tapping it jumps to any date's Guru's msg.
+    const dEl = $("m-panel-date");
+    dEl.textContent = e.date ? dpPillText(e.date) : (e.weekday || "");
+    dEl.onclick = () => openDatePicker(e.date, goDate);
+    $("m-panel-fav").classList.remove("m-vact-disabled");
+    $("m-panel-share").classList.remove("m-vact-disabled");
 
     const fav = $("m-panel-fav");
     fav.classList.toggle("on", store.isFav(e.id));
@@ -3551,57 +3755,19 @@ const MOBILE_UI = (() => {
         if (!st.word) q.focus();
       },
       date() {
-        // Android's own calendar has no "jump to month" shortcut (only a year
-        // list) — these two dropdowns fill that gap: pick Year then Month,
-        // and the NATIVE calendar opens already showing that month, so the
-        // actual day is still picked on the real OS picker. Tapping the date
-        // field directly (skipping the dropdowns) still works as before.
-        body.innerHTML = `
-          <div class="m-inputrow m-daterow">
-            <select id="m-year"><option value="">Year</option></select>
-            <select id="m-month" disabled><option value="">Month</option></select>
-          </div>
-          <div class="m-inputrow"><input type="date" id="m-d"></div>
-          <div class="m-hint">Pick a day to see its Guru's msg.</div>`;
-        const yearSel = body.querySelector("#m-year");
-        const monthSel = body.querySelector("#m-month");
-        const dateInput = body.querySelector("#m-d");
-
-        api("/api/browse?group=year").then((d) => {
-          d.periods.forEach((p) => yearSel.appendChild(el(`<option value="${p.period}">${p.period} · ${p.count}</option>`)));
-        }).catch(() => {});
-
-        yearSel.addEventListener("change", async () => {
-          const year = yearSel.value;
-          monthSel.innerHTML = `<option value="">Month</option>`;
-          monthSel.disabled = true;
-          if (!year) return;
-          try {
-            const d = await api("/api/browse?group=month");
-            d.periods.filter((p) => p.period.startsWith(year + "-")).forEach((p) => {
-              monthSel.appendChild(el(`<option value="${p.period}">${periodLabel("month", p.period)} · ${p.count}</option>`));
-            });
-            monthSel.disabled = false;
-          } catch {}
+        // Tapping the Date tab opens the same spinner+calendar picker DIRECTLY
+        // (no intermediate "Pick a date" button). If cancelled, a small link
+        // stays so the tab isn't a dead end and the picker can be reopened.
+        body.innerHTML = `<div class="m-hint" style="text-align:center;padding:18px"><a href="#" id="m-datelink">Tap to pick a date</a></div>`;
+        const open = () => openDatePicker(null, (iso) => {
+          if (!forChat) { goDate(iso); return; }
+          // Community picker needs a real msg id — empty dates can't be chatted on.
+          api("/api/browse?date=" + encodeURIComponent(iso))
+            .then((d) => { if (d.results && d.results.length) go(hrefFor(d.results[0].id)); else toast(DP_MSG.notfound); })
+            .catch(() => toast("Couldn't open that date."));
         });
-
-        monthSel.addEventListener("change", () => {
-          const ym = monthSel.value; if (!ym) return;
-          dateInput.value = ym + "-01";
-          // Opens the native calendar pre-set to that month; older WebViews
-          // without showPicker() just leave the field ready to tap manually.
-          if (dateInput.showPicker) { try { dateInput.showPicker(); } catch {} }
-        });
-
-        dateInput.addEventListener("change", async (ev) => {
-          const iso = ev.target.value; if (!iso) return;
-          results.innerHTML = `<div class="loading">Loading…</div>`;
-          try {
-            const d = await api("/api/browse?date=" + encodeURIComponent(iso));
-            if (d.results.length === 1) { go(hrefFor(d.results[0].id)); return; }
-            showResults(results, d.results, "Guru's msg was not shared on this day.", hrefFor, !forChat);
-          } catch (err) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; }
-        });
+        body.querySelector("#m-datelink").addEventListener("click", (ev) => { ev.preventDefault(); open(); });
+        open();   // open the calendar immediately on entering the Date tab
       },
       number() {
         body.innerHTML = `<div class="m-inputrow">
@@ -3779,6 +3945,7 @@ const MOBILE_UI = (() => {
       if (seg[0] === "favorites") return favoritesPage();
       const p = seg[1];
       if (p === "search") return searchPage(params);
+      if (p === "nomsg") return renderDateMessage(params.get("d"));
       if (p === "community") return communityPage(params);
       if (p === "anushthan") return placeholderPage("Anushthan Message", "अनुष्ठान संदेश");
       if (p === "special") return placeholderPage("Special Message", "विशेष संदेश");
