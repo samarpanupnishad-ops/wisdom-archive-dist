@@ -1123,7 +1123,7 @@ body.m-mode.m-notop .m-top { display: none; }
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
 body.m-mode.m-notop .m-vpanel { display: flex; }
-.m-vpanel .m-vdate { color: var(--accent); font: 700 13.5px var(--sans); }
+.m-vpanel .m-vdate { color: #c2185b; background: #fce4ec; font: 700 13px var(--sans); padding: 5px 12px; border-radius: 999px; }
 
 /* ---- bottom bar (viewer pages only) ---- */
 .m-bottom {
@@ -1314,20 +1314,27 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
    --dp-pink-deep  : slightly deeper light pink for the spinner selection band
    --dp-dark       : dark pink accent (dot, Set, selected day, header text) */
 .m-dp { --dp-pink: #fce4ec; --dp-pink-deep: #f7d6e4; --dp-dark: #c2185b; }
-.m-dp-head { background: var(--dp-pink); color: var(--dp-dark); padding: 14px 18px; }
-.m-dp-y { font-size: 13px; opacity: .8; }
-.m-dp-d { font-size: 22px; font-weight: 500; margin-top: 2px; }
+/* Slim single-line header (day, date, month, year on one line). */
+.m-dp-head { background: var(--dp-pink); color: var(--dp-dark); padding: 9px 18px; }
+.m-dp-d { font-size: 17px; font-weight: 500; }
+/* 3-row rolling spinner: each wheel is a 3-row-tall viewport; a strip of all
+   values translates inside it (GPU transform), edges faded by a mask. The pink
+   band marks the centred (selected) value. */
 .m-dp-spin { position: relative; display: flex; padding: 8px 16px 2px; }
-.m-dp-selrow { position: absolute; left: 12px; right: 12px; top: 76px; height: 34px; background: var(--dp-pink-deep); border-radius: 9px; pointer-events: none; }
-.m-dp-wheel { position: relative; flex: 1; text-align: center; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.m-dp-selrow { position: absolute; left: 12px; right: 12px; top: 42px; height: 34px; background: var(--dp-pink-deep); border-radius: 9px; pointer-events: none; }
+.m-dp-wheel { position: relative; flex: 1; height: 102px; overflow: hidden; text-align: center; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 34%, #000 66%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 34%, #000 66%, transparent 100%); }
+.m-dp-strip { will-change: transform; }
 .m-dp-row { height: 34px; line-height: 34px; font-size: 15px; }
-.m-dp-row.sel { font-size: 17px; font-weight: 500; color: var(--dp-dark); }
+.m-dp-row.sel { font-weight: 500; color: var(--dp-dark); }
 .m-dp-nav { display: flex; align-items: center; justify-content: space-between; padding: 4px 14px; }
 .m-dp-mlabel { font-weight: 500; font-size: 15px; }
 .m-dp-arrow { width: 34px; height: 34px; border: none; background: transparent; color: var(--muted); font-size: 22px; line-height: 1; border-radius: 50%; cursor: pointer; }
 .m-dp-arrow:disabled { opacity: .25; cursor: default; }
 .m-dp-wd { display: grid; grid-template-columns: repeat(7,1fr); text-align: center; color: var(--muted); font-size: 11px; font-weight: 500; padding: 2px 12px 0; }
-.m-dp-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 1px; padding: 2px 12px 6px; }
+/* Fixed 6 rows → identical height for every month (no jump between Feb/Jan). */
+.m-dp-grid { display: grid; grid-template-columns: repeat(7,1fr); grid-template-rows: repeat(6, 40px); gap: 1px; padding: 2px 12px 6px; }
 .m-dp-day { position: relative; height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border: none; background: transparent; color: var(--text); font: 400 14px var(--sans); cursor: pointer; border-radius: 10px; }
 .m-dp-day > span { width: 32px; height: 32px; line-height: 32px; text-align: center; border-radius: 50%; }
 .m-dp-day.anu { background: var(--dp-pink); }

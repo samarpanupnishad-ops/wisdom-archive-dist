@@ -2759,7 +2759,7 @@ const MOBILE_UI = (() => {
     clamp();
 
     const ov = el(`<div class="m-dp-scrim"><div class="m-dp" role="dialog" aria-label="Pick a date">
-      <div class="m-dp-head"><div class="m-dp-y"></div><div class="m-dp-d"></div></div>
+      <div class="m-dp-head"><div class="m-dp-d"></div></div>
       <div class="m-dp-spin"><div class="m-dp-selrow" aria-hidden="true"></div>
         <div class="m-dp-wheel" data-w="d"></div><div class="m-dp-wheel" data-w="m"></div><div class="m-dp-wheel" data-w="y"></div></div>
       <div class="m-dp-nav"><button class="m-dp-arrow" data-nav="-1" aria-label="Previous month">‹</button>
@@ -2779,16 +2779,25 @@ const MOBILE_UI = (() => {
       if (w === "m") { const list = monthsFor(sel.y); return { list, idx: list.indexOf(sel.m), fmt: (v) => DP_MON[dpLang()][v], set: (v) => { sel.m = v; clamp(); } }; }
       const list = daysFor(sel.y, sel.m); return { list, idx: list.indexOf(sel.d), fmt: (v) => dpPad(v), set: (v) => { sel.d = v; } };
     };
+    // ---- rolling wheel: a strip of ALL values translates inside a 3-row
+    // viewport; the pink band marks the centred value. Dragging moves the strip
+    // with the finger (GPU transform), snapping to the nearest value on release.
+    const ROW = 34, CENTER = 1;                          // 3 visible rows, selected in the middle slot
+    const stripOf = (w) => wEls[w].firstElementChild;
+    const restY = (w) => (CENTER - wData(w).idx) * ROW;   // translateY that centres the current value
+    const setWY = (w, y, anim) => { const s = stripOf(w); if (!s) return; s.style.transition = anim ? "transform .18s ease-out" : "none"; s.style.transform = `translateY(${y}px)`; };
+    const markCentered = (w, i) => { const s = stripOf(w); if (!s) return; for (const r of s.children) r.classList.toggle("sel", +r.dataset.i === i); };
     function renderWheel(w) {
-      const wd = wData(w), rows = [];
-      for (let i = -2; i <= 2; i++) { const v = wd.list[wd.idx + i];
-        rows.push(`<div class="m-dp-row${i === 0 ? " sel" : ""}" style="opacity:${i === 0 ? 1 : Math.abs(i) === 1 ? .5 : .28}">${v == null ? "" : wd.fmt(v)}</div>`); }
-      wEls[w].innerHTML = rows.join("");
+      const wd = wData(w);
+      wEls[w].innerHTML = `<div class="m-dp-strip">` +
+        wd.list.map((v, i) => `<div class="m-dp-row" data-i="${i}">${wd.fmt(v)}</div>`).join("") + `</div>`;
+      setWY(w, restY(w), false);
+      markCentered(w, wd.idx);
     }
+    const renderWheels = () => ["d", "m", "y"].forEach(renderWheel);
     function renderHead() {
       const L = dpLang(), dt = new Date(sel.y, sel.m, sel.d);
-      q(".m-dp-y").textContent = sel.y;
-      q(".m-dp-d").textContent = DP_WD[L][dt.getDay()] + ", " + sel.d + " " + DP_MON[L][sel.m];
+      q(".m-dp-d").textContent = DP_WD[L][dt.getDay()] + ", " + sel.d + " " + DP_MON[L][sel.m] + ", " + sel.y;
       q(".m-dp-mlabel").textContent = DP_MONF[L][sel.m] + " " + sel.y;
       q('[data-nav="-1"]').disabled = (sel.y === mn.y && sel.m === mn.m);
       q('[data-nav="1"]').disabled = (sel.y === mx.y && sel.m === mx.m);
@@ -2805,7 +2814,7 @@ const MOBILE_UI = (() => {
       }
       q(".m-dp-grid").innerHTML = h;
     }
-    const render = () => { ["d", "m", "y"].forEach(renderWheel); renderHead(); renderGrid(); };
+    const render = () => { renderWheels(); renderHead(); renderGrid(); };
     render();
 
     q(".m-dp-grid").addEventListener("click", (e) => { const b = e.target.closest(".m-dp-day"); if (!b || b.disabled) return; sel.d = +b.dataset.d; render(); });
@@ -2814,20 +2823,37 @@ const MOBILE_UI = (() => {
       if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
       sel.y = y; sel.m = m; clamp(); render();
     }));
-    const ROW = 34;
+    const haptic = () => { try { navigator.vibrate && navigator.vibrate(6); } catch {} };
+    // Drag rolls the strip with the finger; the calendar grid is rebuilt only on
+    // RELEASE (not every step) — that's what makes the spin crisp. The value is
+    // committed live (so the header tracks the roll) but the other wheels + grid
+    // re-sync once, on release.
     ["d", "m", "y"].forEach((w) => {
-      const elw = wEls[w]; let sy0 = null, i0 = 0;
-      const begin = (yy) => { sy0 = yy; i0 = wData(w).idx; };
-      const move = (yy) => {
-        if (sy0 == null) return; const wd = wData(w);
-        const ni = Math.max(0, Math.min(wd.list.length - 1, i0 + Math.round((sy0 - yy) / ROW)));
-        if (ni !== wd.idx) { wd.set(wd.list[ni]); try { navigator.vibrate && navigator.vibrate(6); } catch {} render(); }
+      const view = wEls[w]; let y0 = null, baseY = 0;
+      const begin = (yy) => { y0 = yy; baseY = restY(w); setWY(w, baseY, false); };
+      const moveTo = (yy) => {
+        if (y0 == null) return;
+        const wd = wData(w), maxY = CENTER * ROW, minY = (CENTER - (wd.list.length - 1)) * ROW;
+        let ny = baseY + (yy - y0);
+        if (ny > maxY) ny = maxY + (ny - maxY) * 0.3;          // rubber-band past the first value
+        else if (ny < minY) ny = minY + (ny - minY) * 0.3;     // …and past the last
+        setWY(w, ny, false);
+        const ci = Math.max(0, Math.min(wd.list.length - 1, Math.round((CENTER * ROW - ny) / ROW)));
+        markCentered(w, ci);
+        if (ci !== wd.idx) { wd.set(wd.list[ci]); haptic(); renderHead(); }
       };
-      elw.addEventListener("touchstart", (e) => begin(e.touches[0].clientY), { passive: true });
-      elw.addEventListener("touchmove", (e) => move(e.touches[0].clientY), { passive: true });
-      elw.addEventListener("touchend", () => { sy0 = null; }, { passive: true });
-      elw.addEventListener("wheel", (e) => { e.preventDefault(); const wd = wData(w), ni = Math.max(0, Math.min(wd.list.length - 1, wd.idx + (e.deltaY > 0 ? 1 : -1))); if (ni !== wd.idx) { wd.set(wd.list[ni]); render(); } }, { passive: false });
-      elw.addEventListener("mousedown", (e) => { e.preventDefault(); begin(e.clientY); const mv = (ev) => move(ev.clientY), up = () => { sy0 = null; window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); }; window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up); });
+      const end = () => {
+        if (y0 == null) return; y0 = null;
+        setWY(w, restY(w), true);                               // snap the dragged wheel to its value
+        ["d", "m", "y"].filter((x) => x !== w).forEach(renderWheel);   // others may have clamped
+        renderHead(); renderGrid();                             // grid rebuilds once, here
+      };
+      view.addEventListener("touchstart", (e) => begin(e.touches[0].clientY), { passive: true });
+      view.addEventListener("touchmove", (e) => moveTo(e.touches[0].clientY), { passive: true });
+      view.addEventListener("touchend", end, { passive: true });
+      view.addEventListener("touchcancel", end, { passive: true });
+      view.addEventListener("mousedown", (e) => { e.preventDefault(); begin(e.clientY); const mv = (ev) => moveTo(ev.clientY), up = () => { end(); window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); }; window.addEventListener("mousemove", mv); window.addEventListener("mouseup", up); });
+      view.addEventListener("wheel", (e) => { e.preventDefault(); const wd = wData(w), ni = Math.max(0, Math.min(wd.list.length - 1, wd.idx + (e.deltaY > 0 ? 1 : -1))); if (ni !== wd.idx) { wd.set(wd.list[ni]); haptic(); renderWheel(w); ["d", "m", "y"].filter((x) => x !== w).forEach(renderWheel); renderHead(); renderGrid(); } }, { passive: false });
     });
 
     const close = () => { if (!ov.parentNode) return; ov.remove(); _dpClose = null; document.removeEventListener("keydown", onKey); };
