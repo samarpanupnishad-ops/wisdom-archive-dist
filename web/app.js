@@ -2817,9 +2817,11 @@ const MOBILE_UI = (() => {
     const render = () => { renderWheels(); renderHead(); renderGrid(); };
     render();
     // Haptic tick — fires on spinner steps, month carousel, day tap, and Set.
-    // Needs the native VIBRATE permission (AndroidManifest) to actually buzz;
-    // silently no-ops without it (e.g. desktop, or an APK missing the permission).
-    const haptic = () => { try { navigator.vibrate && navigator.vibrate(6); } catch {} };
+    // Needs the native VIBRATE permission (AndroidManifest) to actually buzz.
+    // 80ms (not a tiny 6ms): Samsung's haptic engine IGNORES very short buzzes
+    // (a Galaxy M32 felt 70ms+ but nothing at 40/25/6ms), while other phones
+    // buzz even at 6ms. 80ms is felt everywhere and still reads as a light tick.
+    const haptic = () => { try { navigator.vibrate && navigator.vibrate(80); } catch {} };
 
     q(".m-dp-grid").addEventListener("click", (e) => { const b = e.target.closest(".m-dp-day"); if (!b || b.disabled) return; sel.d = +b.dataset.d; haptic(); render(); });
     ov.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
