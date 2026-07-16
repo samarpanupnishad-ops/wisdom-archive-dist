@@ -1326,7 +1326,38 @@ body.m-mode.m-viewing .m-bottom { display: flex; }
    values translates inside it (GPU transform), edges faded by a mask. The pink
    band marks the centred (selected) value. */
 .m-dp-spin { position: relative; display: flex; padding: 8px 16px 2px; }
-.m-dp-selrow { position: absolute; left: 12px; right: 12px; top: 76px; height: 34px; background: var(--dp-pink-deep); border-radius: 9px; pointer-events: none; }
+/* Spinner selection band: pale-yellow glitter (base #fff3a6 + white sparkle
+   flecks + soft bokeh) with a gentle looping shimmer sweep. Sits BEHIND the
+   wheels, so the dark-pink selected value stays fully readable on top. */
+.m-dp-selrow {
+  position: absolute; left: 12px; right: 12px; top: 76px; height: 34px;
+  border-radius: 9px; pointer-events: none; overflow: hidden;
+  background-color: #fff3a6;
+  background-image:
+    radial-gradient(circle at 12% 40%, rgba(255,255,255,.55) 0 6px, transparent 15px),
+    radial-gradient(circle at 66% 68%, rgba(255,255,255,.45) 0 8px, transparent 18px),
+    radial-gradient(circle at 88% 25%, rgba(255,255,255,.4) 0 6px, transparent 14px),
+    radial-gradient(circle at 6% 20%,#fff 0 1.3px,transparent 2.1px),
+    radial-gradient(circle at 16% 74%,#fff 0 1.1px,transparent 1.8px),
+    radial-gradient(circle at 24% 34%,rgba(255,255,255,.9) 0 1.5px,transparent 2.3px),
+    radial-gradient(circle at 33% 86%,#fff 0 1.2px,transparent 1.9px),
+    radial-gradient(circle at 41% 16%,#fff 0 1.4px,transparent 2.2px),
+    radial-gradient(circle at 48% 60%,rgba(255,255,255,.85) 0 1.1px,transparent 1.7px),
+    radial-gradient(circle at 56% 84%,#fff 0 1.3px,transparent 2px),
+    radial-gradient(circle at 62% 28%,#fff 0 1.2px,transparent 1.9px),
+    radial-gradient(circle at 70% 52%,rgba(255,255,255,.9) 0 1.5px,transparent 2.3px),
+    radial-gradient(circle at 78% 80%,#fff 0 1.1px,transparent 1.7px),
+    radial-gradient(circle at 84% 60%,#fff 0 1.4px,transparent 2.2px),
+    radial-gradient(circle at 91% 86%,rgba(255,255,255,.85) 0 1.2px,transparent 1.9px),
+    radial-gradient(circle at 95% 40%,#fff 0 1.4px,transparent 2.2px);
+}
+.m-dp-selrow::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,.55) 50%, transparent 60%);
+  transform: translateX(-130%); animation: m-dp-shimmer 3.4s ease-in-out infinite;
+}
+@keyframes m-dp-shimmer { 0% { transform: translateX(-130%); } 55%, 100% { transform: translateX(130%); } }
+@media (prefers-reduced-motion: reduce) { .m-dp-selrow::after { animation: none; } }
 .m-dp-wheel { position: relative; flex: 1; height: 170px; overflow: hidden; text-align: center; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 30%, #000 70%, transparent 100%);
   mask-image: linear-gradient(180deg, transparent 0, #000 30%, #000 70%, transparent 100%); }
