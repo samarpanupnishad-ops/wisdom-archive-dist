@@ -2817,11 +2817,15 @@ const MOBILE_UI = (() => {
     const render = () => { renderWheels(); renderHead(); renderGrid(); };
     render();
     // Haptic tick — fires on spinner steps, month carousel, day tap, and Set.
-    // Needs the native VIBRATE permission (AndroidManifest) to actually buzz.
-    // 80ms (not a tiny 6ms): Samsung's haptic engine IGNORES very short buzzes
-    // (a Galaxy M32 felt 70ms+ but nothing at 40/25/6ms), while other phones
-    // buzz even at 6ms. 80ms is felt everywhere and still reads as a light tick.
-    const haptic = () => { try { navigator.vibrate && navigator.vibrate(80); } catch {} };
+    // Driven by Settings → Display "Vibration" switch + strength slider
+    // (wa:mobile:vibeOn / wa:mobile:vibeMs; default on / 12ms). Needs the native
+    // VIBRATE permission to actually buzz. NOTE: Samsung ignores very short
+    // durations (a Galaxy M32 needs ~70ms+), so a low strength won't buzz there.
+    const haptic = () => {
+      if (pref("wa:mobile:vibeOn", "1") !== "1") return;
+      const ms = parseInt(pref("wa:mobile:vibeMs", "12"), 10) || 12;
+      try { navigator.vibrate && navigator.vibrate(ms); } catch {}
+    };
 
     q(".m-dp-grid").addEventListener("click", (e) => { const b = e.target.closest(".m-dp-day"); if (!b || b.disabled) return; sel.d = +b.dataset.d; haptic(); render(); });
     ov.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
@@ -4001,7 +4005,16 @@ const MOBILE_UI = (() => {
           <span class="m-switch"><input type="checkbox" id="m-zb-side"><i></i></span></label>
         <label class="m-switchrow">Flip sound
           <span class="m-switch"><input type="checkbox" id="m-tick-sound"><i></i></span></label>
-        <div class="m-hint">Double-tap a Guru's msg image to open zoom. Off = right side (default).</div>
+        <label class="m-switchrow">Vibration
+          <span class="m-switch"><input type="checkbox" id="m-vibe-on"><i></i></span></label>
+        <div class="m-vibe-strength" id="m-vibe-strength">
+          <label for="m-vibe-ms">Vibration strength</label>
+          <div class="m-vibe-row">
+            <input type="range" id="m-vibe-ms" min="5" max="100" step="1">
+            <span class="m-vibe-val" id="m-vibe-val">12 ms</span>
+          </div>
+        </div>
+        <div class="m-hint">Double-tap a Guru's msg image to open zoom. Off = right side (default). Some phones (e.g. Samsung) only buzz above ~70 ms — slide the strength up if you feel nothing.</div>
       </div>`);
       prose.appendChild(box);
       const zb = box.querySelector("#m-zb-side"), ts = box.querySelector("#m-tick-sound");
@@ -4009,6 +4022,24 @@ const MOBILE_UI = (() => {
       ts.checked = flipSoundEnabled();
       zb.addEventListener("change", () => setPref("wa:mobile:zoomBarSide", zb.checked ? "left" : "right"));
       ts.addEventListener("change", () => setPref("wa:mobile:tickSound", ts.checked ? "1" : "0"));
+
+      // Vibration on/off + strength (drives the date-picker haptic). A short
+      // preview buzz plays as you toggle on / release the slider so you can feel
+      // the chosen strength (needs the native VIBRATE permission to fire).
+      const von = box.querySelector("#m-vibe-on"), vms = box.querySelector("#m-vibe-ms"),
+        vval = box.querySelector("#m-vibe-val"), vwrap = box.querySelector("#m-vibe-strength");
+      const buzzPreview = () => { if (pref("wa:mobile:vibeOn", "1") !== "1") return; const ms = parseInt(pref("wa:mobile:vibeMs", "12"), 10) || 12; try { navigator.vibrate && navigator.vibrate(ms); } catch {} };
+      const syncVibe = () => {
+        const on = pref("wa:mobile:vibeOn", "1") === "1";
+        von.checked = on;
+        const ms = parseInt(pref("wa:mobile:vibeMs", "12"), 10) || 12;
+        vms.value = ms; vval.textContent = ms + " ms";
+        vms.disabled = !on; vwrap.classList.toggle("disabled", !on);
+      };
+      syncVibe();
+      von.addEventListener("change", () => { setPref("wa:mobile:vibeOn", von.checked ? "1" : "0"); syncVibe(); if (von.checked) buzzPreview(); });
+      vms.addEventListener("input", () => { vval.textContent = vms.value + " ms"; });
+      vms.addEventListener("change", () => { setPref("wa:mobile:vibeMs", vms.value); buzzPreview(); });
     },
   };
 })();

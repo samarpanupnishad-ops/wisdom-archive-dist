@@ -1606,6 +1606,13 @@ body.m-mode.m-zoom .m-vpanel { display: none !important; }
 }
 .m-switch input:checked + i { background: var(--accent); }
 .m-switch input:checked + i::before { transform: translateX(20px); }
+/* Vibration strength slider (Settings → Display) */
+.m-vibe-strength { margin: 4px 0 2px; }
+.m-vibe-strength.disabled { opacity: .4; pointer-events: none; }
+.m-vibe-strength > label { display: block; font: 500 13.5px var(--sans); color: var(--muted); margin-bottom: 6px; }
+.m-vibe-row { display: flex; align-items: center; gap: 12px; }
+.m-vibe-row input[type="range"] { flex: 1; accent-color: var(--accent); height: 24px; }
+.m-vibe-val { min-width: 52px; text-align: right; font: 500 14px var(--sans); font-variant-numeric: tabular-nums; color: var(--text); }
 
 /* ---- "Your Lucky Msg for Today" — dancing, sparkling menu item ---- */
 @keyframes mluckydance {
