@@ -2422,14 +2422,184 @@ function initIdNav() {
   });
 }
 
+// --------------------------------------------------------------------------
+// Hindi typing search — type Roman letters ("shanti"), get real Devanagari
+// words FROM THE ARCHIVE to search. Corpus-driven: /api/vocab returns every
+// distinct Hindi word with its entry count, so every suggestion is guaranteed
+// to have results. Transliteration here is Devanagari→Roman only (the easy,
+// deterministic direction); the user's fuzzy Roman spelling is matched by
+// applying the SAME romanNorm() to both sides (shaanti = santi = shanti).
+// Used by both the desktop top bar and the mobile Search By → Word tab.
+const HindiType = (() => {
+  // Devanagari → Roman tables. "R" is a placeholder for ऋ/ृ, expanded to both
+  // "ri" and "ru" spellings (users type either: kripa / krupa).
+  const IND = { "अ": "a", "आ": "aa", "इ": "i", "ई": "ee", "उ": "u", "ऊ": "oo", "ऋ": "R",
+    "ए": "e", "ऐ": "ai", "ओ": "o", "औ": "au", "ऑ": "o", "ॐ": "om" };
+  const CONS = { "क": "k", "ख": "kh", "ग": "g", "घ": "gh", "ङ": "n", "च": "ch", "छ": "chh",
+    "ज": "j", "झ": "jh", "ञ": "n", "ट": "t", "ठ": "th", "ड": "d", "ढ": "dh", "ण": "n",
+    "त": "t", "थ": "th", "द": "d", "ध": "dh", "न": "n", "प": "p", "फ": "ph", "ब": "b",
+    "भ": "bh", "म": "m", "य": "y", "र": "r", "ल": "l", "व": "v", "श": "sh", "ष": "sh",
+    "स": "s", "ह": "h", "क़": "q", "ख़": "kh", "ग़": "g", "ज़": "z", "ड़": "d", "ढ़": "dh",
+    "फ़": "f", "ळ": "l" };
+  const MATRA = { "ा": "aa", "ि": "i", "ी": "ee", "ु": "u", "ू": "oo", "ृ": "R",
+    "े": "e", "ै": "ai", "ो": "o", "ौ": "au", "ॉ": "o" };
+  const SIGN = { "ं": "n", "ँ": "n", "ः": "h" };
+
+  function romanize(word) {
+    const w = word.normalize("NFC");
+    let out = "";
+    for (let i = 0; i < w.length; i++) {
+      const c = w[i];
+      if (CONS[c]) {
+        out += CONS[c];
+        const nx = w[i + 1];
+        if (nx === "्") { i++; continue; }                       // conjunct — no vowel
+        if (nx && MATRA[nx]) { out += MATRA[nx]; i++; continue; }
+        if (i < w.length - 1) out += "a";   // inherent 'a'; dropped word-finally (राम = ram)
+        continue;
+      }
+      if (IND[c]) { out += IND[c]; continue; }
+      if (SIGN[c]) { out += SIGN[c]; continue; }
+      // virama, nukta, other combining marks: skip
+    }
+    return out;
+  }
+
+  // Same normalizer for the archive's romanized words AND the user's typing,
+  // so most spelling variation cancels out instead of needing special cases.
+  function romanNorm(s) {
+    s = String(s).toLowerCase().replace(/[^a-z]/g, "");
+    s = s.replace(/chh/g, "ch");
+    s = s.replace(/aa/g, "a").replace(/ee/g, "i").replace(/ii/g, "i").replace(/oo/g, "u").replace(/uu/g, "u");
+    s = s.replace(/sh/g, "s").replace(/w/g, "v").replace(/ph/g, "f").replace(/q/g, "k").replace(/z/g, "j");
+    s = s.replace(/m(?=[kgcjtdnpbsyrlv])/g, "n");   // typed 'm' before a consonant ≈ anusvara 'n'
+    s = s.replace(/(.)\1+/g, "$1");
+    return s;
+  }
+
+  let vocab = null, loading = null;
+  function buildIndex(terms) {
+    const idx = [];
+    for (const t of terms) {
+      const dev = t[0], doc = t[1];
+      const base = romanize(dev);
+      if (!base) continue;
+      const vars = base.includes("R") ? [base.replace(/R/g, "ri"), base.replace(/R/g, "ru")] : [base];
+      idx.push({
+        dev, doc,
+        roman: vars[0].replace(/aa/g, "a").replace(/ee/g, "i").replace(/oo/g, "u"),
+        keys: vars.map(romanNorm),
+      });
+    }
+    return idx;
+  }
+  function load() {
+    if (vocab) return Promise.resolve(vocab);
+    if (!loading) loading = (async () => {
+      try {
+        const d = await api("/api/vocab?lang=hi");
+        vocab = buildIndex(d.terms || []);
+        try { localStorage.setItem("wa:hiVocab", JSON.stringify(d.terms)); } catch {}
+      } catch {
+        // Offline / server hiccup: fall back to the last fetched vocabulary.
+        try { vocab = buildIndex(JSON.parse(localStorage.getItem("wa:hiVocab") || "[]")); } catch { vocab = []; }
+      }
+      return vocab;
+    })();
+    return loading;
+  }
+  function suggest(input, n) {
+    if (!vocab) { load(); return []; }
+    const k = romanNorm(input);
+    if (!k) return [];
+    const match = (key) => vocab
+      .filter((t) => t.keys.some((x) => x.startsWith(key)))
+      .sort((a, b) => (b.keys.includes(key) ? 1 : 0) - (a.keys.includes(key) ? 1 : 0) || b.doc - a.doc);
+    let out = match(k);
+    // Common trailing vowel the schwa deletion removed: yoga → yog, mitra → mitr.
+    if (!out.length && k.endsWith("a")) out = match(k.slice(0, -1));
+    return out.slice(0, n || 6);
+  }
+  const hasDevanagari = (s) => /[ऀ-ॿ]/.test(s);
+  // Shared mode (desktop + mobile): "hi" = type Roman, search Hindi. Default
+  // Hindi — the reader opens in Hindi too; the flip is remembered.
+  function mode() { try { return localStorage.getItem("wa:searchLang") || "hi"; } catch { return "hi"; } }
+  function setMode(m) { try { localStorage.setItem("wa:searchLang", m); } catch {} }
+  // One suggestion row; used by both surfaces so they can't drift apart.
+  function rowHtml(t, i) {
+    return `<button type="button" class="hi-row${i === 0 ? " top" : ""}" data-dev="${escapeHtml(t.dev)}" style="animation-delay:${i * 35}ms">
+      <span class="hi-dev">${escapeHtml(t.dev)}</span>
+      <span class="hi-rom">${escapeHtml(t.roman)}</span>
+      <span class="hi-n">${t.doc}</span>
+    </button>`;
+  }
+  return { load, suggest, mode, setMode, hasDevanagari, rowHtml };
+})();
+
+// ---- desktop top bar wiring (Hindi mode: suggest instead of live-routing) --
 let debounce;
+const hiSeg = document.getElementById("hi-seg");
+const hiSugg = document.getElementById("hi-sugg");
+
+function hiSegPaint() {
+  const m = HindiType.mode();
+  hiSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
+  searchInput.placeholder = m === "hi" ? "Type shanti, prem… get हिंदी" : "Search msg in English/Hindi";
+}
+function hiHideSugg() { hiSugg.hidden = true; hiSugg.innerHTML = ""; }
+function hiRenderSugg() {
+  const items = HindiType.suggest(searchInput.value, 6);
+  if (!items.length) { hiHideSugg(); return; }
+  hiSugg.innerHTML = items.map((t, i) => HindiType.rowHtml(t, i)).join("");
+  hiSugg.hidden = false;
+}
+function hiPick(dev) {
+  hiHideSugg();
+  searchInput.value = dev;
+  go("#/search?q=" + encodeURIComponent(dev));
+}
+const hindiTyping = () => HindiType.mode() === "hi" && searchInput.value.trim() && !HindiType.hasDevanagari(searchInput.value);
+hiSeg.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-mode]"); if (!b) return;
+  HindiType.setMode(b.dataset.mode);
+  hiSegPaint(); hiHideSugg();
+  if (b.dataset.mode === "hi") HindiType.load();   // warm the vocab
+  searchInput.focus();
+});
+hiSugg.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-dev]"); if (b) hiPick(b.dataset.dev);
+});
+document.addEventListener("click", (e) => {
+  if (!hiSugg.hidden && !hiSugg.contains(e.target) && e.target !== searchInput) hiHideSugg();
+});
+hiSegPaint();
+if (HindiType.mode() === "hi") HindiType.load();
+
 searchInput.addEventListener("input", () => {
   clearTimeout(debounce);
+  if (hindiTyping()) {
+    // Roman keystrokes in Hindi mode: show Devanagari suggestions instead of
+    // searching the Roman text (which would only match English bodies).
+    const v = searchInput.value;
+    HindiType.load().then(() => { if (searchInput.value === v) hiRenderSugg(); });
+    hiRenderSugg();
+    return;
+  }
+  hiHideSugg();
   const v = searchInput.value;
   debounce = setTimeout(() => { history.replaceState(null, "", v.trim() ? "#/search?q=" + encodeURIComponent(v) : "#/search"); safeRoute(); }, 200);
 });
-searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTimeout(debounce); go("#/search?q=" + encodeURIComponent(searchInput.value)); } });
-searchClear.addEventListener("click", () => { searchInput.value = ""; searchInput.focus(); go("#/search"); });
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !hiSugg.hidden) { hiHideSugg(); return; }
+  if (e.key !== "Enter") return;
+  clearTimeout(debounce);
+  if (hindiTyping()) {
+    const top = HindiType.suggest(searchInput.value, 1)[0];
+    if (top) { hiPick(top.dev); return; }
+  }
+  go("#/search?q=" + encodeURIComponent(searchInput.value));
+});
+searchClear.addEventListener("click", () => { hiHideSugg(); searchInput.value = ""; searchInput.focus(); go("#/search"); });
 document.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); searchInput.focus(); } });
 
 // Left/Right steps the carousel — Home's date-based one (_stageId set) or a
@@ -2817,15 +2987,9 @@ const MOBILE_UI = (() => {
     const render = () => { renderWheels(); renderHead(); renderGrid(); };
     render();
     // Haptic tick — fires on spinner steps, month carousel, day tap, and Set.
-    // Driven by Settings → Display "Vibration" switch + strength slider
-    // (wa:mobile:vibeOn / wa:mobile:vibeMs; default on / 12ms). Needs the native
-    // VIBRATE permission to actually buzz. NOTE: Samsung ignores very short
-    // durations (a Galaxy M32 needs ~70ms+), so a low strength won't buzz there.
-    const haptic = () => {
-      if (pref("wa:mobile:vibeOn", "1") !== "1") return;
-      const ms = parseInt(pref("wa:mobile:vibeMs", "12"), 10) || 12;
-      try { navigator.vibrate && navigator.vibrate(ms); } catch {}
-    };
+    // Shared helper (also used by Search By); see hapticTick() for the
+    // settings keys and the Samsung minimum-duration caveat.
+    const haptic = hapticTick;
 
     q(".m-dp-grid").addEventListener("click", (e) => { const b = e.target.closest(".m-dp-day"); if (!b || b.disabled) return; sel.d = +b.dataset.d; haptic(); render(); });
     ov.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => {
@@ -2878,6 +3042,19 @@ const MOBILE_UI = (() => {
   // ---- user display preferences (zoom bar side) -----------
   function pref(k, d) { try { return localStorage.getItem(k) || d; } catch { return d; } }
   function setPref(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+  // ---- shared haptic tick --------------------------------------------------
+  // One buzz for every selection-style tap (date picker, Search By tabs, the
+  // हिंदी/English flip, Hindi word suggestions). Driven by Settings → Display
+  // "Vibration" switch + strength slider (wa:mobile:vibeOn / wa:mobile:vibeMs;
+  // default on / 12ms). Needs the native VIBRATE permission to actually buzz.
+  // NOTE: Samsung ignores very short durations (a Galaxy M32 needs ~70ms+), so
+  // a low strength won't buzz there.
+  function hapticTick() {
+    if (pref("wa:mobile:vibeOn", "1") !== "1") return;
+    const ms = parseInt(pref("wa:mobile:vibeMs", "12"), 10) || 12;
+    try { navigator.vibrate && navigator.vibrate(ms); } catch {}
+  }
 
   // ---- zoom mode (double-tap the image) ----------------------------------
   // Full-screen dark viewer with a vertical zoom bar on the chosen edge:
@@ -3764,9 +3941,26 @@ const MOBILE_UI = (() => {
 
     const tabs = {
       word() {
-        body.innerHTML = `<div class="m-inputrow">
-          <input type="search" id="m-q" placeholder="Search in English or Hindi…" autocomplete="off"></div>`;
+        // हिंदी mode (default): type Roman letters, pick a real Devanagari word
+        // from the archive (HindiType suggestions). English mode: the original
+        // live search, untouched. Same look as the home bottom-bar language
+        // segment (.m-langseg) so users already know the control.
+        body.innerHTML = `
+          <div class="m-seg-row">
+            <div class="m-langseg m-searchseg" id="m-slang" role="group" aria-label="Search language">
+              <button data-mode="hi" type="button">हिंदी</button>
+              <button data-mode="en" type="button">English</button>
+            </div>
+          </div>
+          <div class="m-inputrow" id="m-qrow">
+            <input type="search" id="m-q" autocomplete="off"></div>
+          <div class="m-hint m-hi-hint" id="m-hi-hint">English letters बनेंगे हिंदी शब्द — नीचे से चुनें</div>
+          <div class="hi-sugg m-hi-sugg" id="m-hi-sugg" hidden></div>`;
         const q = body.querySelector("#m-q");
+        const seg = body.querySelector("#m-slang");
+        const qrow = body.querySelector("#m-qrow");
+        const hint = body.querySelector("#m-hi-hint");
+        const sugg = body.querySelector("#m-hi-sugg");
         q.value = st.word;
         results.innerHTML = st.wordResultsHtml;   // restore instantly, no re-fetch/flash
         let deb = null, seq = 0;
@@ -3784,9 +3978,60 @@ const MOBILE_UI = (() => {
             st.wordResultsHtml = results.innerHTML;
           } catch (err) { if (mySeq === seq) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; st.wordResultsHtml = results.innerHTML; } }
         };
-        // Live search: results appear as you type.
-        q.addEventListener("input", () => { clearTimeout(deb); deb = setTimeout(run, 250); });
-        q.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); clearTimeout(deb); run(); } });
+        const hideSugg = () => { sugg.hidden = true; sugg.innerHTML = ""; };
+        const paintMode = () => {
+          const m = HindiType.mode();
+          seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
+          qrow.classList.toggle("hi-glow", m === "hi");
+          hint.style.display = m === "hi" ? "" : "none";
+          q.placeholder = m === "hi" ? "Type shanti, prem, dhyan…" : "Search in English…";
+        };
+        // Roman typing in Hindi mode → Devanagari suggestions (typed Devanagari
+        // from a Hindi keyboard searches directly, whatever the toggle says).
+        const hindiTyping = () => HindiType.mode() === "hi" && q.value.trim() && !HindiType.hasDevanagari(q.value);
+        const renderSugg = () => {
+          const items = HindiType.suggest(q.value, 6);
+          if (!items.length) { hideSugg(); return; }
+          sugg.innerHTML = items.map((t, i) => HindiType.rowHtml(t, i)).join("");
+          sugg.hidden = false;
+        };
+        seg.addEventListener("click", (ev) => {
+          const b = ev.target.closest("button[data-mode]"); if (!b) return;
+          hapticTick();
+          HindiType.setMode(b.dataset.mode);
+          paintMode(); hideSugg();
+          if (b.dataset.mode === "hi") HindiType.load();
+          q.focus();
+        });
+        sugg.addEventListener("click", (ev) => {
+          const b = ev.target.closest("[data-dev]"); if (!b) return;
+          hapticTick();
+          hideSugg();
+          q.value = b.dataset.dev;
+          clearTimeout(deb); run();
+        });
+        q.addEventListener("input", () => {
+          clearTimeout(deb);
+          if (hindiTyping()) {
+            const v = q.value;
+            HindiType.load().then(() => { if (q.value === v) renderSugg(); });
+            renderSugg();
+            return;
+          }
+          hideSugg();
+          deb = setTimeout(run, 250);
+        });
+        q.addEventListener("keydown", (ev) => {
+          if (ev.key !== "Enter") return;
+          ev.preventDefault(); clearTimeout(deb);
+          if (hindiTyping()) {
+            const top = HindiType.suggest(q.value, 1)[0];
+            if (top) { hapticTick(); hideSugg(); q.value = top.dev; run(); return; }
+          }
+          run();
+        });
+        paintMode();
+        if (HindiType.mode() === "hi") HindiType.load();   // warm the vocab
         if (!st.word) q.focus();
       },
       date() {
@@ -3821,6 +4066,7 @@ const MOBILE_UI = (() => {
     };
     node.querySelector(".m-tabs").addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;
+      hapticTick();
       st.tab = b.dataset.t;
       node.querySelectorAll(".m-tabs button").forEach((x) => x.classList.toggle("active", x === b));
       results.innerHTML = "";

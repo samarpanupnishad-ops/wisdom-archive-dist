@@ -1406,11 +1406,13 @@ body.m-mode .content:has(.m-page-scroll) { min-height: 0; }
 .m-page-scroll .m-tabs, .m-page-scroll .m-tabbody { flex: none; }
 .m-page-scroll .m-results { flex: 1; min-height: 0; overflow-y: auto; }
 .m-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+/* Search By tabs — blue family (user-decided): all three light blue with dark
+   blue text; the active one a shade deeper so position is still obvious. */
 .m-tabs button {
-  flex: 1; padding: 10px 0; border: 1px solid var(--border); border-radius: 22px;
-  background: var(--surface); color: var(--muted); font: 600 14.5px var(--sans); cursor: pointer;
+  flex: 1; padding: 10px 0; border: 1px solid #bbdefb; border-radius: 22px;
+  background: #e3f2fd; color: #1565c0; font: 600 14.5px var(--sans); cursor: pointer;
 }
-.m-tabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.m-tabs button.active { background: #bbdefb; border-color: #64b5f6; color: #0d47a1; }
 .m-inputrow { display: flex; gap: 8px; }
 .m-inputrow input {
   flex: 1; min-width: 0; padding: 12px 14px; font: 15px var(--sans);
@@ -1651,3 +1653,63 @@ body.m-mode.m-zoom .m-vpanel { display: none !important; }
     animation: none !important; opacity: 1;
   }
 }
+
+/* ---- Hindi typing search (Roman letters -> Devanagari suggestions) ------- */
+/* Desktop topbar language pill — same look as the mobile home .m-langseg. */
+.searchbox { min-width: 170px; }   /* the pill must never crush the search field */
+.hi-seg { display: flex; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; flex: none; }
+.hi-seg button { border: none; background: var(--surface); color: var(--muted); font: 600 12.5px var(--sans); padding: 8px 13px; cursor: pointer; white-space: nowrap; }
+.hi-seg button.active { background: var(--accent); color: #fff; }
+@media (max-width: 1000px) { .hi-seg button { padding: 7px 9px; font-size: 11.5px; } }
+
+/* Suggestion dropdown. On desktop it floats under the search box; the mobile
+   Search By variant (.m-hi-sugg) sits in the page flow under the input. */
+.hi-sugg {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 620;
+  min-width: 250px;
+  background: var(--surface); border: 1px solid #bbdefb; border-radius: 14px;
+  overflow: hidden; box-shadow: 0 10px 30px rgba(40, 30, 60, .14);
+}
+.hi-row {
+  position: relative; display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 14px; border: none; background: var(--surface); cursor: pointer;
+  text-align: left; font-family: var(--sans); animation: hi-bloom .22s ease both;
+}
+.hi-row + .hi-row { border-top: 1px solid #f0f6fd; }
+.hi-row:hover, .hi-row:active { background: #e3f2fd; }
+/* Selected (top) word — the SAME sparkle-yellow band the date spinner uses for
+   its selected date (see .m-dp-selrow), so "selected" looks alike everywhere. */
+.hi-row.top, .hi-row.top:hover, .hi-row.top:active {
+  overflow: hidden;
+  background-color: #fff3a6;
+  background-image:
+    radial-gradient(circle at 12% 40%, rgba(255,255,255,.55) 0 6px, transparent 15px),
+    radial-gradient(circle at 66% 68%, rgba(255,255,255,.45) 0 8px, transparent 18px),
+    radial-gradient(circle at 88% 25%, rgba(255,255,255,.4) 0 6px, transparent 14px),
+    radial-gradient(circle at 24% 34%, rgba(255,255,255,.9) 0 1.5px, transparent 2.3px),
+    radial-gradient(circle at 48% 60%, rgba(255,255,255,.85) 0 1.1px, transparent 1.7px),
+    radial-gradient(circle at 70% 52%, rgba(255,255,255,.9) 0 1.5px, transparent 2.3px),
+    radial-gradient(circle at 91% 86%, rgba(255,255,255,.85) 0 1.2px, transparent 1.9px);
+}
+.hi-row.top::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,.55) 50%, transparent 60%);
+  transform: translateX(-130%); animation: m-dp-shimmer 3.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .hi-row.top::after { animation: none; } }
+.hi-dev { position: relative; z-index: 1; flex: 1; font-size: 18px; color: var(--text); }
+.hi-rom { position: relative; z-index: 1; font-size: 12px; color: var(--muted); }
+.hi-n { position: relative; z-index: 1; font: 600 11.5px var(--sans); background: #e3f2fd; color: #1565c0; padding: 3px 10px; border-radius: 12px; }
+.hi-row.top .hi-rom { color: #8a7a26; }
+.hi-row.top .hi-n { background: var(--surface); color: #8a6d00; }
+@keyframes hi-bloom { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Mobile Search By — language pill row (pill stays ORANGE, user-decided) +
+   light blue search field border, blue glow while in Hindi mode. */
+.m-seg-row { display: flex; justify-content: center; margin-bottom: 12px; }
+.m-searchseg button { padding: 9px 20px; font-size: 14px; }
+.m-searchwrap .m-inputrow input { border-color: #bbdefb; }
+.m-inputrow.hi-glow input { border-color: #90caf9; box-shadow: 0 0 0 3px #e3f2fd; }
+.m-searchwrap .m-count { color: #1565c0; }
+.m-hi-hint { text-align: center; margin-top: 8px; }
+.m-hi-sugg { position: static; margin-top: 10px; box-shadow: none; }
