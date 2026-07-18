@@ -2478,6 +2478,28 @@ const HindiType = (() => {
   }
 
   let vocab = null, loading = null;
+  // Fallback for installed APKs whose BUNDLED wa-native.js predates /api/vocab:
+  // OTA updates ship app.js but never wa-native.js (see mobile/publish_update.py
+  // UI_FILES), so on such phones the endpoint 404s forever. /api/search DOES
+  // return full body_hi there, and FTS tokens are matra-split fragments, so a
+  // few single-consonant prefix probes together cover ~every Hindi entry —
+  // enough to rebuild the same word list client-side. One-time; cached after.
+  async function vocabFromSearch() {
+    const seen = new Set();
+    const freq = new Map();
+    const wordRe = /[ऀ-ॣॱ-ॿ]{2,}/g;
+    for (const probe of ["ह", "क", "स", "म"]) {
+      let d;
+      try { d = await api("/api/search?q=" + encodeURIComponent(probe)); } catch { continue; }
+      for (const r of (d && d.results) || []) {
+        if (!r.body_hi || seen.has(r.id)) continue;
+        seen.add(r.id);
+        for (const w of new Set(r.body_hi.match(wordRe) || [])) freq.set(w, (freq.get(w) || 0) + 1);
+      }
+    }
+    if (!seen.size) throw new Error("no vocab source");
+    return [...freq.entries()].sort((a, b) => b[1] - a[1]);
+  }
   function buildIndex(terms) {
     const idx = [];
     for (const t of terms) {
@@ -2501,8 +2523,17 @@ const HindiType = (() => {
         vocab = buildIndex(d.terms || []);
         try { localStorage.setItem("wa:hiVocab", JSON.stringify(d.terms)); } catch {}
       } catch {
-        // Offline / server hiccup: fall back to the last fetched vocabulary.
+        // Offline, server hiccup, or an APK whose bundled wa-native.js has no
+        // /api/vocab: last good copy first (instant), else rebuild the word
+        // list from full search bodies (vocabFromSearch above) and cache it.
         try { vocab = buildIndex(JSON.parse(localStorage.getItem("wa:hiVocab") || "[]")); } catch { vocab = []; }
+        if (!vocab.length) {
+          try {
+            const terms = await vocabFromSearch();
+            vocab = buildIndex(terms);
+            try { localStorage.setItem("wa:hiVocab", JSON.stringify(terms)); } catch {}
+          } catch { /* keep empty — suggestions simply stay off */ }
+        }
       }
       return vocab;
     })();
