@@ -2537,17 +2537,25 @@ const HindiType = (() => {
 })();
 
 // ---- desktop top bar wiring (Hindi mode: suggest instead of live-routing) --
+// ⚠ NULL-GUARDED: #hi-seg / #hi-sugg live in index.html, which mobile OTA
+// updates do NOT ship (only app.js/styles.css/wa-supabase.js/vendor go over
+// the air) — an installed APK runs THIS file against its older bundled
+// index.html. Without the guards the whole app dies at load. On that older
+// shell hindiTyping() stays false, so the top bar keeps legacy behavior;
+// the mobile Search By page has its own UI and works regardless.
 let debounce;
 const hiSeg = document.getElementById("hi-seg");
 const hiSugg = document.getElementById("hi-sugg");
 
 function hiSegPaint() {
+  if (!hiSeg) return;
   const m = HindiType.mode();
   hiSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
   searchInput.placeholder = m === "hi" ? "Type shanti, prem… get हिंदी" : "Search msg in English/Hindi";
 }
-function hiHideSugg() { hiSugg.hidden = true; hiSugg.innerHTML = ""; }
+function hiHideSugg() { if (!hiSugg) return; hiSugg.hidden = true; hiSugg.innerHTML = ""; }
 function hiRenderSugg() {
+  if (!hiSugg) return;
   const items = HindiType.suggest(searchInput.value, 6);
   if (!items.length) { hiHideSugg(); return; }
   hiSugg.innerHTML = items.map((t, i) => HindiType.rowHtml(t, i)).join("");
@@ -2558,22 +2566,24 @@ function hiPick(dev) {
   searchInput.value = dev;
   go("#/search?q=" + encodeURIComponent(dev));
 }
-const hindiTyping = () => HindiType.mode() === "hi" && searchInput.value.trim() && !HindiType.hasDevanagari(searchInput.value);
-hiSeg.addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-mode]"); if (!b) return;
-  HindiType.setMode(b.dataset.mode);
-  hiSegPaint(); hiHideSugg();
-  if (b.dataset.mode === "hi") HindiType.load();   // warm the vocab
-  searchInput.focus();
-});
-hiSugg.addEventListener("click", (e) => {
-  const b = e.target.closest("[data-dev]"); if (b) hiPick(b.dataset.dev);
-});
-document.addEventListener("click", (e) => {
-  if (!hiSugg.hidden && !hiSugg.contains(e.target) && e.target !== searchInput) hiHideSugg();
-});
-hiSegPaint();
-if (HindiType.mode() === "hi") HindiType.load();
+const hindiTyping = () => !!hiSugg && HindiType.mode() === "hi" && searchInput.value.trim() && !HindiType.hasDevanagari(searchInput.value);
+if (hiSeg && hiSugg) {
+  hiSeg.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-mode]"); if (!b) return;
+    HindiType.setMode(b.dataset.mode);
+    hiSegPaint(); hiHideSugg();
+    if (b.dataset.mode === "hi") HindiType.load();   // warm the vocab
+    searchInput.focus();
+  });
+  hiSugg.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-dev]"); if (b) hiPick(b.dataset.dev);
+  });
+  document.addEventListener("click", (e) => {
+    if (!hiSugg.hidden && !hiSugg.contains(e.target) && e.target !== searchInput) hiHideSugg();
+  });
+  hiSegPaint();
+  if (HindiType.mode() === "hi") HindiType.load();
+}
 
 searchInput.addEventListener("input", () => {
   clearTimeout(debounce);
