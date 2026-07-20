@@ -3922,32 +3922,61 @@ const MOBILE_UI = (() => {
   }
 
   // ---- Search By (word / date / number) -----------------------------------
+  // A window of `len` chars centred on the first occurrence of `term`, so the
+  // matched word is visible in the card (not just the start of the text).
+  function snippetAround(text, term, len) {
+    const t = (text || "").replace(/\s+/g, " ");
+    if (!term) return t.slice(0, len);
+    const i = t.toLowerCase().indexOf(term.toLowerCase());
+    if (i < 0) return t.slice(0, len);
+    const start = Math.max(0, i - Math.floor((len - term.length) / 2));
+    return (start > 0 ? "…" : "") + t.slice(start, start + len);
+  }
+  // Highlight `term` inside already-HTML-escaped text (global mark CSS = yellow).
+  function markTerm(escapedText, term) {
+    if (!term) return escapedText;
+    const esc = escapeHtml(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return escapedText.replace(new RegExp(esc, "gi"), (m) => `<mark>${m}</mark>`);
+  }
   // listCtx (optional): { ids: [...], index: N } — when set, opening this
   // result makes the vertical feed scroll through just THIS list (in the
   // order it's shown), not the whole chronological archive.
-  function resultItem(r, hrefFor, listCtx) {
-    const prev = (r.preview_hi || r.preview_en || r.body_hi || r.body_en || "").slice(0, 90);
+  // opts (optional): { lang: "en"|"hi", term } — which language the search
+  // matched. Cards then show THAT language's topic + a snippet centred on the
+  // matched word, and tapping a result opens the reader in that language
+  // (English search → English page first). Omitted → legacy Hindi-first card.
+  function resultItem(r, hrefFor, listCtx, opts) {
+    const lang = opts && opts.lang;
+    const term = opts && opts.term;
+    const topic = lang === "en" ? (r.topic_en || r.topic_hi || "") : (r.topic_hi || r.topic_en || "");
+    const rawBody = lang === "en"
+      ? (r.preview_en || r.body_en || r.preview_hi || r.body_hi || "")
+      : (r.preview_hi || r.body_hi || r.preview_en || r.body_en || "");
+    const prev = snippetAround(rawBody, term, 90);
     const href = hrefFor(r.id);
     const it = el(`<a class="m-result" href="${href}">
       ${thumbImg(r)}
       <div class="m-r-meta">
         <div class="m-r-top">#${r.id} · ${fmtDate(r.date)}</div>
-        <div class="m-r-topic">${escapeHtml(r.topic_hi || r.topic_en || "")}</div>
-        <div class="m-r-prev">${escapeHtml(prev)}</div>
+        <div class="m-r-topic">${escapeHtml(topic)}</div>
+        <div class="m-r-prev">${markTerm(escapeHtml(prev), term)}</div>
       </div></a>`);
-    if (listCtx && href.startsWith("#/entry/")) {
-      it.addEventListener("click", () => setActiveList(listCtx.ids, listCtx.index));
+    if (href.startsWith("#/entry/")) {
+      it.addEventListener("click", () => {
+        if (listCtx) setActiveList(listCtx.ids, listCtx.index);
+        if (lang) applyLangToFeed(lang, false);   // open the reader in the matched language
+      });
     }
     return it;
   }
   // scoped=true: opening any row here confines vertical scrolling to this
   // exact list (Favorites, Word search). Leave false/omitted for contexts
   // where scoping wouldn't make sense (e.g. picking a Guru's msg for chat).
-  function showResults(box, rows, emptyMsg, hrefFor, scoped) {
+  function showResults(box, rows, emptyMsg, hrefFor, scoped, opts) {
     box.innerHTML = "";
     if (!rows.length) { box.innerHTML = `<div class="empty">${emptyMsg}</div>`; return; }
     const ids = scoped ? rows.map((r) => r.id) : null;
-    rows.forEach((r, i) => box.appendChild(resultItem(r, hrefFor, scoped ? { ids, index: i } : null)));
+    rows.forEach((r, i) => box.appendChild(resultItem(r, hrefFor, scoped ? { ids, index: i } : null, opts)));
   }
 
   // Restored when returning from a result's detail page (item 1); cleared the
@@ -4015,7 +4044,10 @@ const MOBILE_UI = (() => {
             if (mySeq !== seq) return;   // a newer keystroke's search already ran
             results.innerHTML = `<div class="m-count">${d.count} Guru's msg${d.count === 1 ? "" : "s"} found</div>`;
             const list = el(`<div></div>`); results.appendChild(list);
-            showResults(list, d.results, "", hrefFor, !forChat);
+            // The query's script says which language FTS matched: Devanagari →
+            // Hindi bodies, Latin → English. Cards + reader follow that language.
+            const displayLang = HindiType.hasDevanagari(term) ? "hi" : "en";
+            showResults(list, d.results, "", hrefFor, !forChat, { lang: displayLang, term });
             st.wordResultsHtml = results.innerHTML;
           } catch (err) { if (mySeq === seq) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; st.wordResultsHtml = results.innerHTML; } }
         };
