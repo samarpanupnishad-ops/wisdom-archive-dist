@@ -4023,7 +4023,10 @@ const MOBILE_UI = (() => {
             </div>
           </div>
           <div class="m-inputrow" id="m-qrow">
-            <input type="search" id="m-q" autocomplete="off"></div>
+            <div class="m-clearwrap">
+              <input type="search" id="m-q" autocomplete="off">
+              <button class="m-clear" id="m-q-clear" type="button" aria-label="Clear" hidden>✕</button>
+            </div></div>
           <div class="m-hint m-hi-hint" id="m-hi-hint">English letters बनेंगे हिंदी शब्द — नीचे से चुनें</div>
           <div class="hi-sugg m-hi-sugg" id="m-hi-sugg" hidden></div>`;
         const q = body.querySelector("#m-q");
@@ -4051,6 +4054,17 @@ const MOBILE_UI = (() => {
             st.wordResultsHtml = results.innerHTML;
           } catch (err) { if (mySeq === seq) { results.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`; st.wordResultsHtml = results.innerHTML; } }
         };
+        // Big round clear button (the native search × is too small to tap).
+        // Visible only while there's text; clearing resets suggestions +
+        // results and refocuses so the user can retype immediately.
+        const clr = body.querySelector("#m-q-clear");
+        const syncClr = () => { clr.hidden = !q.value; };
+        clr.addEventListener("click", () => {
+          hapticTick();
+          q.value = ""; st.word = ""; st.wordResultsHtml = "";
+          hideSugg(); results.innerHTML = "";
+          syncClr(); q.focus();
+        });
         const hideSugg = () => { sugg.hidden = true; sugg.innerHTML = ""; };
         const paintMode = () => {
           const m = HindiType.mode();
@@ -4085,6 +4099,7 @@ const MOBILE_UI = (() => {
         });
         q.addEventListener("input", () => {
           clearTimeout(deb);
+          syncClr();
           if (hindiTyping()) {
             const v = q.value;
             HindiType.load().then(() => { if (q.value === v) renderSugg(); });
@@ -4104,6 +4119,7 @@ const MOBILE_UI = (() => {
           run();
         });
         paintMode();
+        syncClr();   // st.word may have been restored non-empty
         if (HindiType.mode() === "hi") HindiType.load();   // warm the vocab
         if (!st.word) q.focus();
       },
@@ -4124,11 +4140,22 @@ const MOBILE_UI = (() => {
       },
       number() {
         body.innerHTML = `<div class="m-inputrow">
-          <input type="text" id="m-n" inputmode="numeric" placeholder="Guru's msg number, e.g. 3446">
+          <div class="m-clearwrap">
+            <input type="text" id="m-n" inputmode="numeric" placeholder="Guru's msg number, e.g. 3446">
+            <button class="m-clear" id="m-n-clear" type="button" aria-label="Clear" hidden>✕</button>
+          </div>
           <button class="btn primary" id="m-n-go">Open</button></div>`;
         const n = body.querySelector("#m-n");
+        const nClr = body.querySelector("#m-n-clear");
+        const syncNClr = () => { nClr.hidden = !n.value; };
+        nClr.addEventListener("click", () => {
+          hapticTick();
+          n.value = ""; st.numberValue = "";
+          syncNClr(); n.focus();
+        });
         n.value = st.numberValue;
-        n.addEventListener("input", () => { st.numberValue = n.value; });
+        syncNClr();
+        n.addEventListener("input", () => { st.numberValue = n.value; syncNClr(); });
         const goN = () => {
           const v = n.value.trim(); if (v) go(hrefFor(encodeURIComponent(v)));
         };

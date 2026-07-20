@@ -1713,3 +1713,16 @@ body.m-mode.m-zoom .m-vpanel { display: none !important; }
 .m-searchwrap .m-count { color: #1565c0; }
 .m-hi-hint { text-align: center; margin-top: 8px; }
 .m-hi-sugg { position: static; margin-top: 10px; box-shadow: none; }
+
+/* Big round clear (✕) inside the Search By inputs — the native search-field ×
+   is far too small to tap. Shown only while the field has text (JS). */
+.m-clearwrap { position: relative; flex: 1; min-width: 0; display: flex; }
+.m-clearwrap input { width: 100%; padding-right: 50px; }
+.m-clearwrap input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.m-clear {
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 38px; height: 38px; border: none; border-radius: 50%;
+  background: #e3f2fd; color: #1565c0; font-size: 17px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
+}
+.m-clear:active { background: #bbdefb; }
