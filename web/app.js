@@ -3016,36 +3016,50 @@ const MOBILE_UI = (() => {
   // this is a guarded no-op there. Registers the device's FCM token with
   // Supabase; the send-push Edge Function fans out to these tokens when a new
   // Special Message publishes. Tapping a notification opens the Special feed.
+  // Push registration records every step to wa:push:diag so the Settings
+  // "Notifications (debug)" card can show exactly where it fails on-device
+  // (the WebView isn't USB-debuggable in the release build). Temporary
+  // instrumentation — trim once push is confirmed working.
   let _pushInited = false;
-  async function initPush() {
+  function _pdiag(patch) {
+    let d = {};
+    try { d = JSON.parse(localStorage.getItem("wa:push:diag") || "{}"); } catch (_) {}
+    Object.assign(d, patch);
+    try { localStorage.setItem("wa:push:diag", JSON.stringify(d)); } catch (_) {}
+  }
+  async function initPush(force) {
     const Push = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;
-    if (!Push || _pushInited) return;
+    _pdiag({ at: Date.now(), plugin: !!Push, capacitor: !!window.Capacitor,
+             native: !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) });
+    if (!Push) { _pdiag({ result: "NO push plugin on this shell" }); return; }
+    if (_pushInited && !force) { _pdiag({ result: "already inited this session" }); return; }
     _pushInited = true;
     try {
       let perm = await Push.checkPermissions();
+      _pdiag({ permBefore: perm && perm.receive });
       if (perm.receive === "prompt" || perm.receive === "prompt-with-rationale") {
         perm = await Push.requestPermissions();
+        _pdiag({ requested: true });
       }
-      if (perm.receive !== "granted") return;   // user declined — respect it
-      // Android 8+ needs the channel to exist or notifications are dropped
-      // silently; send-push targets this channel_id. Best-effort (no-op on
-      // platforms without createChannel).
+      _pdiag({ permAfter: perm && perm.receive });
+      if (perm.receive !== "granted") { _pdiag({ result: "permission not granted" }); return; }
       try {
         await Push.createChannel({
           id: "special_messages", name: "Special Messages",
           description: "New messages from Baba Swami", importance: 5, visibility: 1,
         });
-      } catch (_) {}
-      Push.addListener("registration", (t) => {
-        try { WA.registerDeviceToken(t.value, "android"); } catch (_) {}
+        _pdiag({ channel: "created" });
+      } catch (e) { _pdiag({ channel: "createChannel failed: " + (e && e.message || e) }); }
+      Push.addListener("registration", async (t) => {
+        _pdiag({ token: (t && t.value || "").slice(0, 18) + "…", registeredAt: Date.now() });
+        try { await WA.registerDeviceToken(t.value, "android"); _pdiag({ supabase: "OK" }); }
+        catch (e) { _pdiag({ supabase: "FAIL: " + (e && e.message || e) }); }
       });
-      Push.addListener("registrationError", (e) => console.error("push register error", e));
-      // Tap on a notification (app was background/closed) → open Special feed.
-      Push.addListener("pushNotificationActionPerformed", () => {
-        try { go("#/m/special"); } catch (_) {}
-      });
+      Push.addListener("registrationError", (e) => _pdiag({ regError: JSON.stringify(e) }));
+      Push.addListener("pushNotificationActionPerformed", () => { try { go("#/m/special"); } catch (_) {} });
       await Push.register();
-    } catch (e) { console.error("initPush failed", e); }
+      _pdiag({ result: "register() called — awaiting token event" });
+    } catch (e) { _pdiag({ result: "initPush threw: " + (e && e.message || e) }); }
   }
   initPush();
 
@@ -4592,6 +4606,27 @@ const MOBILE_UI = (() => {
       // will be reorganised later). Two slide switches; off = right side.
       const prose = document.querySelector(".content .prose");
       if (!prose || document.getElementById("m-display-box")) return;
+
+      // --- TEMPORARY push-notification diagnostic (remove once confirmed) ---
+      const pbox = el(`<div class="sync-box" id="m-push-diag-box">
+        <h3 style="margin-top:0">Notifications (debug)</h3>
+        <pre id="m-push-diag" style="white-space:pre-wrap;word-break:break-word;font-size:12px;background:#faf6f0;padding:10px;border-radius:8px;margin:0 0 10px"></pre>
+        <button class="btn" id="m-push-rerun">Re-run notification setup</button>
+      </div>`);
+      prose.appendChild(pbox);
+      const showDiag = () => {
+        let d = "(nothing recorded yet — tap the button)";
+        try { d = localStorage.getItem("wa:push:diag") || d; } catch (_) {}
+        try { d = JSON.stringify(JSON.parse(d), null, 1); } catch (_) {}
+        pbox.querySelector("#m-push-diag").textContent = d;
+      };
+      showDiag();
+      pbox.querySelector("#m-push-rerun").addEventListener("click", async () => {
+        pbox.querySelector("#m-push-diag").textContent = "running…";
+        try { await initPush(true); } catch (_) {}
+        setTimeout(showDiag, 2000);
+      });
+
       const box = el(`<div class="sync-box" id="m-display-box">
         <h3 style="margin-top:0">Display</h3>
         <label class="m-switchrow">Zoom bar on left side
