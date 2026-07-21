@@ -194,13 +194,14 @@ const WA = {
     if (!token) return { ok: false };
     const { data: { session } } = await _sb.auth.getSession();
     const row = { token, platform: platform || "android", user_id: session ? session.user.id : null };
-    // anon devices have INSERT only (no UPDATE/SELECT) — so ON CONFLICT DO
-    // NOTHING (ignoreDuplicates) and no returned representation. Re-registering
-    // an unchanged token is a harmless no-op; FCM token rotation just inserts a
-    // new row (the stale one is pruned server-side on a 404/410 from FCM).
-    const { error } = await _sb.from("device_tokens")
-      .upsert(row, { onConflict: "token", ignoreDuplicates: true });
-    if (error) throw new Error(error.message);
+    // Plain INSERT — anon devices have the INSERT grant but NOT the extra
+    // privileges PostgREST's upsert / ON CONFLICT path requires (that returned
+    // "permission denied for table device_tokens"). The token column is unique,
+    // so a repeat registration returns 23505 (unique_violation) which we treat
+    // as success (already stored). Rotated/stale tokens are pruned server-side
+    // by send-push on an FCM 404/UNREGISTERED.
+    const { error } = await _sb.from("device_tokens").insert(row);
+    if (error && error.code !== "23505") throw new Error(error.message);
     return { ok: true };
   },
 
