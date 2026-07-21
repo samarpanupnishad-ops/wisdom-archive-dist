@@ -157,6 +157,7 @@ const PATHS = {
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.5a2.4 2.4 0 1 1 3.4 2.2c-.8.4-1.1 1-1.1 1.8"/><path d="M12 17h.01"/>',
   upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/>',
   shield: '<path d="M12 3l7 3v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6l7-3z"/><path d="M9.2 12l2 2 3.6-3.8"/>',
+  spark: '<path d="M11 4l1.7 4.8L17.5 10.5l-4.8 1.7L11 17l-1.7-4.8L4.5 10.5l4.8-1.7L11 4z"/><path d="M18.5 14.5l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9.9-2.3z"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${PATHS[n] || ""}</svg>`;
 
@@ -166,6 +167,7 @@ const NAV = [
   { route: "favorites", label: "Favorites", hash: "#/favorites", icon: "heart" },
   { route: "browse-date", label: "Browse by Date", hash: "#/browse/date", icon: "calendar" },
   { route: "random", label: "Your Lucky Msg for Today", hash: "#/random", icon: "shuffle" },
+  { route: "special", label: "Special Messages", hash: "#/special", icon: "spark" },
   { divider: true },
   { route: "admin", label: "Add Guru's Msg", hash: "#/admin", icon: "upload" },
   { route: "moderator", label: "Moderator", hash: "#/moderator", icon: "shield", modOnly: true },
@@ -178,7 +180,8 @@ function buildNav() {
   const nav = document.getElementById("nav"); nav.innerHTML = "";
   NAV.forEach((it) => {
     if (it.divider) { nav.appendChild(el(`<div class="divider"></div>`)); return; }
-    nav.appendChild(el(`<a href="${it.hash}" data-route="${it.route}"${it.modOnly ? ' class="mod-only"' : ""}><span class="ico">${icon(it.icon)}</span><span class="label">${it.label}</span></a>`));
+    const badge = it.route === "special" ? `<span class="nav-badge" data-special-badge hidden></span>` : "";
+    nav.appendChild(el(`<a href="${it.hash}" data-route="${it.route}"${it.modOnly ? ' class="mod-only"' : ""}><span class="ico">${icon(it.icon)}</span><span class="label">${it.label}</span>${badge}</a>`));
   });
 }
 function setActiveNav(route) { document.querySelectorAll("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.route === route)); }
@@ -2110,6 +2113,7 @@ async function route() {
   const { path, params } = parseHash();
   const seg = path.split("/").filter(Boolean);
   if (_sidePanelClose) _sidePanelClose();
+  closeSpecialStream();   // Special Messages listens only while its screen is open
   // Clear the "current wisdom" — home/entry set it again; other pages leave it empty.
   _stageId = null;
   _searchBackFn = null;   // leaving search (even to re-search) drops any open detail view
@@ -2127,6 +2131,7 @@ async function route() {
   if (seg[0] === "favorites") { setActiveNav("favorites"); return renderFavorites(); }
   if (seg[0] === "browse") { const mode = ["date", "month", "year"].includes(seg[1]) ? seg[1] : "month"; setActiveNav("browse-" + mode); return renderBrowse(mode, params); }
   if (seg[0] === "random") { setActiveNav("random"); return renderRandom(); }
+  if (seg[0] === "special") { setActiveNav("special"); return renderSpecial(); }
   if (seg[0] === "admin") { setActiveNav("admin"); return renderAdmin(); }
   if (seg[0] === "moderator") { setActiveNav("moderator"); return renderModerator(); }
   if (seg[0] === "stats") { setActiveNav("stats"); return renderStats(); }
@@ -2676,6 +2681,170 @@ document.addEventListener("click", (e) => {
   if (on && off) { on.style.display = show ? "none" : ""; off.style.display = show ? "" : "none"; }
 });
 
+// ==========================================================================
+// SPECIAL MESSAGES — Baba Swami's Telegram channel posts, stored in Supabase
+// (`special_messages`; see SPECIAL_MESSAGES_PLAN.md). The ENTIRE published set
+// is cached in localStorage so every message is readable OFFLINE on both web
+// and the APK. Delta-sync keys on `updated_at`, NOT id — the English
+// translation arrives days later as an UPDATE to an existing row, which an
+// id-based delta would never pick up. Hindi-only rows are permanent and normal
+// (pre-2020 history has no English) — the UI falls back to Hindi, never shows
+// a "translation pending" state.
+// ==========================================================================
+const SPECIAL = (() => {
+  const CACHE_KEY = "wa:special:cache", SYNC_KEY = "wa:special:lastSync", SEEN_KEY = "wa:special:lastSeen";
+  // Feed order: when the post appeared on Telegram (newest first) — NOT
+  // msg_date, because the guru re-posts old teachings (signature date years
+  // earlier) and a fresh re-post must appear at the top, as in the channel.
+  // id breaks ties. String compare is safe for ISO timestamps.
+  const sortKey = (r) => (r.posted_at || r.created_at || "") + "|" + String(r.id).padStart(12, "0");
+  function cached() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "[]"); } catch { return []; } }
+  function save(rows) {
+    rows.sort((a, b) => sortKey(b) < sortKey(a) ? -1 : sortKey(b) > sortKey(a) ? 1 : 0);
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(rows)); } catch {}
+  }
+  function lastSeenId() { try { return parseInt(localStorage.getItem(SEEN_KEY) || "0", 10) || 0; } catch { return 0; } }
+  function unread() { const seen = lastSeenId(); return cached().filter((r) => r.id > seen).length; }
+  function markSeen() {
+    const top = cached().reduce((m, r) => Math.max(m, r.id), 0);
+    try { localStorage.setItem(SEEN_KEY, String(top)); } catch {}
+    refreshBadges();
+  }
+  function merge(rows) {
+    if (!rows || !rows.length) return cached();
+    const byId = new Map(cached().map((r) => [r.id, r]));
+    rows.forEach((r) => byId.set(r.id, r));
+    const all = [...byId.values()];
+    save(all);
+    return all;
+  }
+  // Pull changes from Supabase into the cache. Never throws into a badge/boot
+  // path unawaited — callers that only want freshness use .catch(()=>{}).
+  let _inflight = null;
+  function sync() {
+    if (!window.WA || !WA.syncSpecialMessages) return Promise.resolve(cached());
+    if (_inflight) return _inflight;
+    _inflight = (async () => {
+      // Very first sync on this device (no seen-marker, empty cache): the
+      // whole backfilled history arrives at once — don't greet a new install
+      // with a "99+" unread badge. Start clean; badge only what arrives later.
+      const firstRun = !localStorage.getItem(SEEN_KEY) && !cached().length;
+      const since = localStorage.getItem(SYNC_KEY) || "";
+      const d = await WA.syncSpecialMessages(since);
+      let rows = merge(d.messages);
+      if (firstRun && rows.length) {
+        const top = rows.reduce((m, r) => Math.max(m, r.id), 0);
+        try { localStorage.setItem(SEEN_KEY, String(top)); } catch {}
+      }
+      // Reconcile retractions: drop cached rows no longer published on the server.
+      const live = new Set(d.ids || []);
+      if (d.ids && rows.some((r) => !live.has(r.id))) {
+        rows = rows.filter((r) => live.has(r.id));
+        save(rows);
+      }
+      if (d.lastSync) try { localStorage.setItem(SYNC_KEY, d.lastSync); } catch {}
+      refreshBadges();
+      return rows;
+    })();
+    return _inflight.finally(() => { _inflight = null; });
+  }
+  function refreshBadges() {
+    const n = unread(), txt = n > 99 ? "99+" : String(n);
+    document.querySelectorAll("[data-special-badge]").forEach((b) => { b.hidden = !n; b.textContent = txt; });
+    document.querySelectorAll("[data-special-dot]").forEach((b) => { b.hidden = !n; });
+  }
+  return { cached, sync, unread, markSeen, refreshBadges };
+})();
+
+// One special-message card. mode = "dual" (desktop: Hindi LEFT · English
+// RIGHT, per the detail-view convention; Hindi-only rows get one wide column)
+// or "hi"/"en" (mobile: the bottom-bar language, falling back to Hindi with a
+// small हिंदी tag — never a blank card or a "translation coming" state).
+function specialCardHtml(r, mode) {
+  const foot = (place) =>
+    [r.signature, place, r.msg_date ? fmtDate(r.msg_date) : ""].filter(Boolean).map(escapeHtml).join(" · ");
+  const col = (title, body, place, cls) => `<div class="sp-col${cls || ""}">
+      ${title ? `<div class="sp-title">${escapeHtml(title)}</div>` : ""}
+      <div class="sp-body">${escapeHtml(body || "")}</div>
+      ${foot(place) ? `<div class="sp-foot">${foot(place)}</div>` : ""}
+    </div>`;
+  if (mode === "dual") {
+    return r.body_en
+      ? `<article class="sp-card sp-dual">${col(r.title_hi, r.body_hi, r.place_hi)}${col(r.title_en, r.body_en, r.place_en)}</article>`
+      : `<article class="sp-card">${col(r.title_hi, r.body_hi, r.place_hi)}</article>`;
+  }
+  const en = mode === "en";
+  const title = en ? (r.title_en || r.title_hi) : (r.title_hi || r.title_en);
+  const body = en ? (r.body_en || r.body_hi) : (r.body_hi || r.body_en);
+  const place = en ? (r.place_en || r.place_hi) : (r.place_hi || r.place_en);
+  const hiTag = en && !r.body_en ? `<span class="sp-hitag">हिंदी</span>` : "";
+  return `<article class="sp-card">${hiTag}${col(title, body, place)}</article>`;
+}
+
+// Incremental list: with ~900 backfilled messages, painting every card at once
+// makes older phones crawl. Paint CHUNK cards and append the next CHUNK when
+// the tail sentinel scrolls into view. `keepShown` preserves scroll depth
+// across repaints (language flip, live update). Returns {shown()}.
+function paintSpecialList(box, rows, mode, keepShown) {
+  const CHUNK = 30;
+  let shown = Math.min(rows.length, Math.max(CHUNK, keepShown || 0));
+  box.innerHTML = rows.slice(0, shown).map((r) => specialCardHtml(r, mode)).join("");
+  if (shown < rows.length) {
+    const sent = el(`<div class="sp-more">…</div>`);
+    box.appendChild(sent);
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      const next = rows.slice(shown, shown + CHUNK);
+      shown += next.length;
+      sent.insertAdjacentHTML("beforebegin", next.map((r) => specialCardHtml(r, mode)).join(""));
+      if (shown >= rows.length) { io.disconnect(); sent.remove(); }
+    });
+    io.observe(sent);
+  }
+  return { shown: () => shown };
+}
+
+// Foreground-only Realtime subscription (plan §8: closed screens use no
+// socket). Set by the desktop page AND the mobile page; closed on every
+// navigation from route().
+let _specialStream = null;
+function closeSpecialStream() { if (_specialStream) { try { _specialStream.close(); } catch {} _specialStream = null; } }
+
+const SPECIAL_EMPTY_MSG =
+  "No special messages yet. New messages from Baba Swami will appear here.";
+
+async function renderSpecial() {
+  const nav = _nav;
+  let painter = null;
+  const paint = (rows) => {
+    if (!current(nav)) return;
+    $view.innerHTML = `<div class="sp-page"><h2 class="sp-head">✨ Special Messages</h2>
+      <div class="sp-list"></div></div>`;
+    const list = $view.querySelector(".sp-list");
+    if (!rows.length) { list.innerHTML = `<div class="empty">${SPECIAL_EMPTY_MSG}</div>`; return; }
+    painter = paintSpecialList(list, rows, "dual", painter ? painter.shown() : 0);
+  };
+  paint(SPECIAL.cached());          // cache first — instant, works offline
+  try {
+    paint(await SPECIAL.sync());
+  } catch (err) {
+    // Offline / not set up yet: the cache (or the empty state) is already
+    // painted; only surface the error when there's nothing at all to show.
+    if (current(nav) && !SPECIAL.cached().length) {
+      $view.innerHTML = `<div class="sp-page"><h2 class="sp-head">✨ Special Messages</h2>
+        <div class="empty">${escapeHtml(err.message)}</div></div>`;
+    }
+  }
+  SPECIAL.markSeen();
+  if (current(nav) && window.WA && WA.subscribeSpecial) {
+    _specialStream = WA.subscribeSpecial({
+      onChange: () => SPECIAL.sync()
+        .then((rows) => { if (current(nav)) { paint(rows); SPECIAL.markSeen(); } })
+        .catch(() => {}),
+    });
+  }
+}
+
 // --------------------------------------------------------------------------
 // Init
 // --------------------------------------------------------------------------
@@ -2726,6 +2895,7 @@ const MOBILE_UI = (() => {
     <nav class="m-bottom" id="m-bottom">
       <button class="m-navbtn m-menu-btn" id="m-menu-btn" title="Menu" aria-label="Menu">
         <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        <span class="m-menudot" data-special-dot hidden></span>
       </button>
       <button class="m-navbtn m-comm-btn" id="m-comm-btn" title="Community" aria-label="Community">
         <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -2744,10 +2914,10 @@ const MOBILE_UI = (() => {
       <nav class="m-menu">
         <a href="#/m/search"><span class="mi">🔍</span> Search By</a>
         <a href="#/m/community"><span class="mi">💬</span> Community</a>
-        <button class="m-menu-group" data-group="other"><span class="mi">🗂️</span> Other Messages <span class="m-caret">▾</span></button>
+        <button class="m-menu-group" data-group="other"><span class="mi">🗂️</span> Other Messages <span class="m-menudot m-dot-inline" data-special-dot hidden></span><span class="m-caret">▾</span></button>
         <div class="m-submenu" data-sub="other" hidden>
           <a href="#/m/anushthan"><span class="mi">🪔</span> Anushthan Msg</a>
-          <a href="#/m/special"><span class="mi">✨</span> Special Msg</a>
+          <a href="#/m/special"><span class="mi">✨</span> Special Msg <span class="m-badge" data-special-badge hidden></span></a>
         </div>
         <a href="#/random" class="m-lucky"><span class="mi m-lucky-ico">🌟</span>
           <span class="m-lucky-text">Your Lucky Msg for Today</span>
@@ -3276,6 +3446,9 @@ const MOBILE_UI = (() => {
   let prefLang = "hi";   // Hindi on every app open; the user's flip choice then
                          // sticks while scrolling through days this session
   let _feedCards = [];   // controllers for the currently mounted slides
+  // Non-feed pages that also render per-language (Special Messages) register
+  // here to repaint when the bottom-bar toggle flips; cleared on every route.
+  let _pageLangHook = null;
   // Set right before navigating from a curated list (Favorites, Word search)
   // into one of its items: confines the vertical feed to that list instead of
   // the whole chronological archive. Self-correcting — buildFeed() only
@@ -3294,6 +3467,7 @@ const MOBILE_UI = (() => {
     prefLang = l;
     paintLang(l);
     _feedCards.forEach((c) => c && c.setLang(l, animate));
+    if (_pageLangHook) _pageLangHook(l);
   }
   $("m-langseg").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
@@ -4237,6 +4411,34 @@ const MOBILE_UI = (() => {
     pageFrame(title, node);
   }
 
+  // ---- Special Messages (offline-cached; follows the bottom language toggle)
+  function specialPage() {
+    const node = el(`<div class="m-specialwrap"></div>`);
+    pageFrame("Special Message", node, "m-page-scroll");
+    let painter = null;
+    const paint = (rows) => {
+      if (!rows.length) {
+        node.innerHTML = `<div class="m-holder">
+            <div class="m-holder-ico">✨</div>
+            <h2>Special Message</h2>
+            <p class="m-holder-hi">विशेष संदेश</p>
+            <p>${escapeHtml(SPECIAL_EMPTY_MSG)}</p>
+          </div>`;
+        return;
+      }
+      painter = paintSpecialList(node, rows, prefLang, painter ? painter.shown() : 0);
+    };
+    paint(SPECIAL.cached());        // cache first — instant, works with no signal
+    _pageLangHook = () => paint(SPECIAL.cached());
+    const refresh = () => SPECIAL.sync()
+      .then((rows) => { paint(rows); SPECIAL.markSeen(); })
+      .catch(() => SPECIAL.markSeen());   // offline → the cache is the page
+    refresh();
+    if (window.WA && WA.subscribeSpecial) {
+      _specialStream = WA.subscribeSpecial({ onChange: refresh });
+    }
+  }
+
   // ---- Message to Admin ----------------------------------------------------
   async function contactPage() {
     const node = el(`<div class="m-contact"></div>`);
@@ -4312,11 +4514,12 @@ const MOBILE_UI = (() => {
 
   return {
     active,
-    handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m" || seg[0] === "favorites"; },
+    handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m" || seg[0] === "favorites" || seg[0] === "special"; },
     async route(seg, params) {
       closeDrawer();
       exitZoom();
       closeChatStream();
+      _pageLangHook = null;
       // Leaving the Search By flow for anywhere except a result's detail page
       // (or staying within search itself) clears the remembered query/results.
       const preserveSearch = seg[0] === "entry" || (seg[0] === "m" && seg[1] === "search");
@@ -4324,12 +4527,13 @@ const MOBILE_UI = (() => {
       if (!seg.length) return viewer(null, params, true);
       if (seg[0] === "entry") return viewer(seg[1], params, false);
       if (seg[0] === "favorites") return favoritesPage();
+      if (seg[0] === "special") return specialPage();   // desktop-style link → same page
       const p = seg[1];
       if (p === "search") return searchPage(params);
       if (p === "nomsg") return renderDateMessage(params.get("d"));
       if (p === "community") return communityPage(params);
       if (p === "anushthan") return placeholderPage("Anushthan Message", "अनुष्ठान संदेश");
-      if (p === "special") return placeholderPage("Special Message", "विशेष संदेश");
+      if (p === "special") return specialPage();
       if (p === "contact") return contactPage();
       if (p === "account") return accountPage();
       return viewer(null, params, true);
@@ -4337,6 +4541,7 @@ const MOBILE_UI = (() => {
     fallthrough(seg) {
       closeDrawer();
       exitZoom();
+      _pageLangHook = null;
       _feedCards = [];
       setChrome("page", PAGE_TITLES[seg[0]] || "Samarpan Upnishad", null);
     },
@@ -4392,3 +4597,9 @@ const MOBILE_UI = (() => {
 
 window.addEventListener("hashchange", safeRoute);
 safeRoute();
+
+// Special Messages: paint the unread badges from the offline cache right away
+// (chrome for both shells exists by now), then freshen in the background so a
+// message that arrived while the app was closed shows its badge on this open.
+SPECIAL.refreshBadges();
+SPECIAL.sync().catch(() => {});

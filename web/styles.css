@@ -1726,3 +1726,48 @@ body.m-mode.m-zoom .m-vpanel { display: none !important; }
   display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
 }
 .m-clear:active { background: #bbdefb; }
+
+/* ==== Special Messages (Supabase; offline-cached) =========================
+   Desktop (#/special): dual-column cards — Hindi LEFT, English RIGHT (same
+   convention as the detail view); Hindi-only history gets one wide column.
+   Mobile (#/m/special): one card per message in the bottom-bar language,
+   falling back to Hindi with a small हिंदी tag (never a "pending" state). */
+.sp-page { max-width: 980px; margin: 0 auto; padding: 18px 22px 60px; }
+.sp-head { font-family: var(--serif); margin: 4px 0 18px; }
+.sp-card {
+  position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 18px 20px; margin: 0 0 16px;
+}
+.sp-card.sp-dual { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 26px; }
+.sp-card.sp-dual .sp-col + .sp-col { border-left: 1px solid var(--border-soft); padding-left: 26px; }
+@media (max-width: 720px) {
+  .sp-card.sp-dual { grid-template-columns: 1fr; }
+  .sp-card.sp-dual .sp-col + .sp-col { border-left: none; padding-left: 0; border-top: 1px solid var(--border-soft); padding-top: 12px; margin-top: 12px; }
+}
+.sp-title { font: 700 17px var(--serif); color: var(--accent); margin-bottom: 8px; }
+.sp-body { white-space: pre-wrap; font-size: 15.5px; line-height: 1.65; }
+.sp-foot { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.sp-hitag {
+  position: absolute; top: 10px; right: 12px;
+  background: var(--accent-soft); color: var(--accent);
+  font: 600 11.5px var(--sans); padding: 2px 8px; border-radius: 10px;
+}
+.m-specialwrap { padding: 4px 2px 30px; }
+.m-specialwrap .sp-card { padding: 15px 16px; }
+
+/* Unread badges/dots: shown wherever [data-special-badge]/[data-special-dot]
+   sit (desktop nav item, mobile menu button + drawer). JS toggles `hidden`. */
+.nav-badge, .m-badge {
+  min-width: 19px; height: 19px; padding: 0 5px; margin-left: auto;
+  border-radius: 10px; background: #e0483e; color: #fff;
+  font: 700 11px/19px var(--sans); text-align: center; flex: none;
+}
+.m-menu-btn { position: relative; }
+.m-menudot {
+  position: absolute; top: 5px; right: 5px; width: 9px; height: 9px;
+  border-radius: 50%; background: #e0483e; border: 2px solid var(--surface);
+}
+.m-menudot.m-dot-inline { position: static; border: none; width: 8px; height: 8px; flex: none; margin-left: 6px; }
+.app.collapsed .nav-badge { display: none; }   /* icon-only sidebar: no room */
+.sp-more { text-align: center; color: var(--muted); padding: 18px 0 26px; font-size: 20px; letter-spacing: 4px; }

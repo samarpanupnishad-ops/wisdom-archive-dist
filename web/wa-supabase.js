@@ -51,6 +51,15 @@ function _tableMissing(error) {
     : null;
 }
 
+// Friendly text when the special_messages table hasn't been created yet.
+function _specialMissing(error) {
+  return /special_messages.*(does not exist|not find|schema cache)/i.test(error.message || "")
+    ? "Special messages aren't set up yet. (Admin: run the special_messages section of supabase/schema.sql.)"
+    : null;
+}
+const _SPECIAL_COLS =
+  "id,title_hi,title_en,body_hi,body_en,signature,place_hi,place_en,msg_date,posted_at,published,created_at,updated_at";
+
 async function _loadProfile(uid) {
   const { data, error } = await _sb.from("profiles").select("*").eq("id", uid).single();
   if (error) throw new Error(error.message);
@@ -205,6 +214,87 @@ const WA = {
       .order("created_at", { ascending: false }).limit(200);
     if (error) throw new Error(_tableMissing(error) || error.message);
     return { messages: (data || []).map((r) => ({ id: r.id, user: r.username, text: r.text, ts: r.created_at })) };
+  },
+
+  // ----- Special Messages (Baba Swami's Telegram posts) -------------------
+  // Table: special_messages (see supabase/schema.sql + SPECIAL_MESSAGES_PLAN.md).
+  // Published rows are world-readable — no sign-in needed. The offline cache in
+  // app.js delta-syncs on updated_at (NOT id): the English translation arrives
+  // days later as an UPDATE to an existing row, which an id delta would miss.
+  async listSpecialMessages(limit) {
+    const n = Math.max(1, Math.min(parseInt(limit, 10) || 500, 1000));
+    const { data, error } = await _sb.from("special_messages").select(_SPECIAL_COLS)
+      .eq("published", true)
+      .order("posted_at", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false })
+      .limit(n);
+    if (error) throw new Error(_specialMissing(error) || error.message);
+    return { messages: data || [] };
+  },
+
+  // Delta fetch for the offline cache: published rows changed since `sinceIso`
+  // (pass ""/null for everything), PLUS the full list of live ids so the cache
+  // can drop rows retracted on the server. Returns {messages, ids, lastSync}.
+  // Paged in chunks of 1000 (Supabase's REST cap) — the first-ever sync pulls
+  // the whole backfilled history; later syncs are a page of zero or few rows.
+  async syncSpecialMessages(sinceIso) {
+    const PAGE = 1000, msgs = [];
+    for (let off = 0; off < 20000; off += PAGE) {
+      let q = _sb.from("special_messages").select(_SPECIAL_COLS)
+        .eq("published", true).order("updated_at", { ascending: true })
+        .order("id", { ascending: true }).range(off, off + PAGE - 1);
+      if (sinceIso) q = q.gt("updated_at", sinceIso);
+      const { data, error } = await q;
+      if (error) throw new Error(_specialMissing(error) || error.message);
+      msgs.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+    }
+    const ids = [];
+    for (let off = 0; off < 40000; off += PAGE) {
+      const { data, error } = await _sb.from("special_messages")
+        .select("id").eq("published", true).order("id", { ascending: true })
+        .range(off, off + PAGE - 1);
+      if (error) throw new Error(error.message);
+      ids.push(...(data || []).map((r) => r.id));
+      if (!data || data.length < PAGE) break;
+    }
+    return {
+      messages: msgs,
+      ids,
+      lastSync: msgs.length ? msgs[msgs.length - 1].updated_at : "",
+    };
+  },
+
+  // Live updates while the Special Messages screen is open (foreground only —
+  // Realtime connections are the scarce free-tier resource). We can't filter
+  // UPDATE events server-side by `published`, so this just signals "something
+  // changed" and the caller re-runs the cheap delta sync. Returns {close()}.
+  subscribeSpecial({ onChange }) {
+    const ch = _sb.channel("wa-special")
+      .on("postgres_changes", { event: "*", schema: "public", table: "special_messages" },
+          () => { if (onChange) onChange(); })
+      .subscribe();
+    return { close() { try { _sb.removeChannel(ch); } catch (_) {} } };
+  },
+
+  // Admin (moderator/sutradhar — enforced by RLS): manual post / edit / retract.
+  // The automated Telegram pipeline (Phases 2–3) uses the service key instead.
+  async postSpecialMessage(fields) {
+    const { data, error } = await _sb.from("special_messages")
+      .insert(fields).select(_SPECIAL_COLS).single();
+    if (error) throw new Error(_specialMissing(error) || error.message);
+    return { message: data };
+  },
+  async updateSpecialMessage(id, fields) {
+    const { data, error } = await _sb.from("special_messages")
+      .update(fields).eq("id", id).select(_SPECIAL_COLS).single();
+    if (error) throw new Error(_specialMissing(error) || error.message);
+    return { message: data };
+  },
+  async deleteSpecialMessage(id) {
+    const { error } = await _sb.from("special_messages").delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   },
 
   // ----- Moderator ------------------------------------------------------
