@@ -4606,27 +4606,6 @@ const MOBILE_UI = (() => {
       // will be reorganised later). Two slide switches; off = right side.
       const prose = document.querySelector(".content .prose");
       if (!prose || document.getElementById("m-display-box")) return;
-
-      // --- TEMPORARY push-notification diagnostic (remove once confirmed) ---
-      const pbox = el(`<div class="sync-box" id="m-push-diag-box">
-        <h3 style="margin-top:0">Notifications (debug)</h3>
-        <pre id="m-push-diag" style="white-space:pre-wrap;word-break:break-word;font-size:12px;background:#faf6f0;padding:10px;border-radius:8px;margin:0 0 10px"></pre>
-        <button class="btn" id="m-push-rerun">Re-run notification setup</button>
-      </div>`);
-      prose.appendChild(pbox);
-      const showDiag = () => {
-        let d = "(nothing recorded yet — tap the button)";
-        try { d = localStorage.getItem("wa:push:diag") || d; } catch (_) {}
-        try { d = JSON.stringify(JSON.parse(d), null, 1); } catch (_) {}
-        pbox.querySelector("#m-push-diag").textContent = d;
-      };
-      showDiag();
-      pbox.querySelector("#m-push-rerun").addEventListener("click", async () => {
-        pbox.querySelector("#m-push-diag").textContent = "running…";
-        try { await initPush(true); } catch (_) {}
-        setTimeout(showDiag, 2000);
-      });
-
       const box = el(`<div class="sync-box" id="m-display-box">
         <h3 style="margin-top:0">Display</h3>
         <label class="m-switchrow">Zoom bar on left side
