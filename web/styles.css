@@ -1753,7 +1753,7 @@ body.m-mode.m-zoom .m-vpanel { display: none !important; }
   background: var(--accent-soft); color: var(--accent);
   font: 600 11.5px var(--sans); padding: 2px 8px; border-radius: 10px;
 }
-.m-specialwrap { padding: 4px 2px 30px; }
+.m-specialwrap { padding: 4px 2px calc(80px + env(safe-area-inset-bottom)); }
 .m-specialwrap .sp-card { padding: 15px 16px; }
 
 /* Unread badges/dots: shown wherever [data-special-badge]/[data-special-dot]

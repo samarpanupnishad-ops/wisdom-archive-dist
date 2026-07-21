@@ -4414,7 +4414,10 @@ const MOBILE_UI = (() => {
   // ---- Special Messages (offline-cached; follows the bottom language toggle)
   function specialPage() {
     const node = el(`<div class="m-specialwrap"></div>`);
-    pageFrame("Special Message", node, "m-page-scroll");
+    // Natural full-page scroll (like Contact/placeholder pages) — NOT the
+    // fixed-height m-page-scroll box, which clips its content because it only
+    // scrolls a dedicated .m-results child that this page doesn't have.
+    pageFrame("Special Message", node);
     let painter = null;
     const paint = (rows) => {
       if (!rows.length) {
