@@ -3010,6 +3010,45 @@ const MOBILE_UI = (() => {
   const _capApp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
   if (_capApp && _capApp.addListener) _capApp.addListener("backButton", onHardwareBack);
 
+  // ---- Push notifications (Phase 4) --------------------------------------
+  // Ships OTA but only ACTIVATES on an APK that bundles @capacitor/push-
+  // notifications (a new APK) — older shells (8.64) simply lack the plugin, so
+  // this is a guarded no-op there. Registers the device's FCM token with
+  // Supabase; the send-push Edge Function fans out to these tokens when a new
+  // Special Message publishes. Tapping a notification opens the Special feed.
+  let _pushInited = false;
+  async function initPush() {
+    const Push = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;
+    if (!Push || _pushInited) return;
+    _pushInited = true;
+    try {
+      let perm = await Push.checkPermissions();
+      if (perm.receive === "prompt" || perm.receive === "prompt-with-rationale") {
+        perm = await Push.requestPermissions();
+      }
+      if (perm.receive !== "granted") return;   // user declined — respect it
+      // Android 8+ needs the channel to exist or notifications are dropped
+      // silently; send-push targets this channel_id. Best-effort (no-op on
+      // platforms without createChannel).
+      try {
+        await Push.createChannel({
+          id: "special_messages", name: "Special Messages",
+          description: "New messages from Baba Swami", importance: 5, visibility: 1,
+        });
+      } catch (_) {}
+      Push.addListener("registration", (t) => {
+        try { WA.registerDeviceToken(t.value, "android"); } catch (_) {}
+      });
+      Push.addListener("registrationError", (e) => console.error("push register error", e));
+      // Tap on a notification (app was background/closed) → open Special feed.
+      Push.addListener("pushNotificationActionPerformed", () => {
+        try { go("#/m/special"); } catch (_) {}
+      });
+      await Push.register();
+    } catch (e) { console.error("initPush failed", e); }
+  }
+  initPush();
+
   // ---- chrome state --------------------------------------------------------
   // mode: "home" (viewer, no back) | "viewer" (back + fav) | "page" (back + title)
   function setChrome(mode, title, entry) {

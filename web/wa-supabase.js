@@ -185,6 +185,25 @@ const WA = {
     return { messages: data.map((r) => ({ user: r.username, wid: r.wisdom_id, text: r.text, ts: r.created_at })) };
   },
 
+  // ----- Push notifications (Phase 4) ------------------------------------
+  // Register this device's FCM token so the send-push Edge Function can reach
+  // it when a new Special Message publishes. Anonymous devices are allowed
+  // (the archive works signed-out) — device_tokens permits anon INSERT, and
+  // nothing is readable back (RLS). Idempotent on the unique token via upsert.
+  async registerDeviceToken(token, platform) {
+    if (!token) return { ok: false };
+    const { data: { session } } = await _sb.auth.getSession();
+    const row = { token, platform: platform || "android", user_id: session ? session.user.id : null };
+    // anon devices have INSERT only (no UPDATE/SELECT) — so ON CONFLICT DO
+    // NOTHING (ignoreDuplicates) and no returned representation. Re-registering
+    // an unchanged token is a harmless no-op; FCM token rotation just inserts a
+    // new row (the stale one is pruned server-side on a 404/410 from FCM).
+    const { error } = await _sb.from("device_tokens")
+      .upsert(row, { onConflict: "token", ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  },
+
   // ----- Message to admin (mobile "Message to Admin" page) ---------------
   // Table: admin_messages (see supabase/schema.sql). Signed-in users write;
   // they see their own messages, moderators/sutradhar see everyone's.
