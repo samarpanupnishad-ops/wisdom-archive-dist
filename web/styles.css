@@ -1771,3 +1771,31 @@ body.m-mode.m-zoom .m-vpanel { display: none !important; }
 .m-menudot.m-dot-inline { position: static; border: none; width: 8px; height: 8px; flex: none; margin-left: 6px; }
 .app.collapsed .nav-badge { display: none; }   /* icon-only sidebar: no room */
 .sp-more { text-align: center; color: var(--muted); padding: 18px 0 26px; font-size: 20px; letter-spacing: 4px; }
+
+/* ==== Guru's Letterpad Messages (image pages + OCR text) ==================
+   Desktop #/letterpad and mobile #/m/letterpad share these. Each message is a
+   card: title + date header, the page images stacked, and a collapsible OCR
+   text block. Images are served from /letterpad (desktop) or the public
+   update host (mobile). */
+.lp-page { max-width: 980px; margin: 0 auto; padding: 18px 22px 60px; }
+.lp-headline { font-family: var(--serif); margin: 4px 0 18px; }
+.lp-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px 18px; margin: 0 0 18px; max-width: 760px;
+}
+.lp-page .lp-card, .lp-list .lp-card { margin-left: auto; margin-right: auto; }
+.lp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 12px; }
+.lp-title { font: 700 18px var(--serif); color: var(--accent); flex: 1 1 auto; min-width: 0; }
+.lp-date { color: var(--muted); font-size: 13px; }
+.lp-sig { color: var(--accent-2); }
+.lp-langtog { display: inline-flex; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; }
+.lp-langtog button { border: none; background: var(--surface); color: var(--muted); font: 600 12.5px var(--sans); padding: 5px 12px; cursor: pointer; }
+.lp-langtog button.on { background: var(--accent); color: #fff; }
+.lp-pages { display: flex; flex-direction: column; gap: 10px; }
+.lp-pageimg { width: 100%; height: auto; border: 1px solid var(--border-soft); border-radius: 8px; display: block; background: #faf8f4; }
+.lp-text { margin-top: 12px; }
+.lp-text summary { cursor: pointer; color: var(--accent); font: 600 13.5px var(--sans); }
+.lp-body { white-space: pre-wrap; font-size: 15px; line-height: 1.7; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-soft); }
+.m-lp-list { padding: 4px 2px calc(80px + env(safe-area-inset-bottom)); }
+.m-lp-list .lp-card { padding: 13px 14px; }

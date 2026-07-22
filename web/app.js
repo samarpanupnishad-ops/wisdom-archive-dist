@@ -158,6 +158,7 @@ const PATHS = {
   upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/>',
   shield: '<path d="M12 3l7 3v5c0 4.4-3 7.6-7 9-4-1.4-7-4.6-7-9V6l7-3z"/><path d="M9.2 12l2 2 3.6-3.8"/>',
   spark: '<path d="M11 4l1.7 4.8L17.5 10.5l-4.8 1.7L11 17l-1.7-4.8L4.5 10.5l4.8-1.7L11 4z"/><path d="M18.5 14.5l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9.9-2.3z"/>',
+  letter: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="M4 7l8 6 8-6"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${PATHS[n] || ""}</svg>`;
 
@@ -168,6 +169,7 @@ const NAV = [
   { route: "browse-date", label: "Browse by Date", hash: "#/browse/date", icon: "calendar" },
   { route: "random", label: "Your Lucky Msg for Today", hash: "#/random", icon: "shuffle" },
   { route: "special", label: "Special Messages", hash: "#/special", icon: "spark" },
+  { route: "letterpad", label: "Guru's Letterpad Messages", hash: "#/letterpad", icon: "letter" },
   { divider: true },
   { route: "admin", label: "Add Guru's Msg", hash: "#/admin", icon: "upload" },
   { route: "moderator", label: "Moderator", hash: "#/moderator", icon: "shield", modOnly: true },
@@ -2132,6 +2134,7 @@ async function route() {
   if (seg[0] === "browse") { const mode = ["date", "month", "year"].includes(seg[1]) ? seg[1] : "month"; setActiveNav("browse-" + mode); return renderBrowse(mode, params); }
   if (seg[0] === "random") { setActiveNav("random"); return renderRandom(); }
   if (seg[0] === "special") { setActiveNav("special"); return renderSpecial(); }
+  if (seg[0] === "letterpad") { setActiveNav("letterpad"); return renderLetterpad(); }
   if (seg[0] === "admin") { setActiveNav("admin"); return renderAdmin(); }
   if (seg[0] === "moderator") { setActiveNav("moderator"); return renderModerator(); }
   if (seg[0] === "stats") { setActiveNav("stats"); return renderStats(); }
@@ -2845,6 +2848,104 @@ async function renderSpecial() {
   }
 }
 
+// ==========================================================================
+// GURU'S LETTERPAD MESSAGES — the guru's handwritten letterpad messages (page
+// images + OCR text), delivered via the SAME free update path as the daily
+// archive, NOT Supabase. On desktop the FastAPI app serves /letterpad; on the
+// mobile APK the identical files are fetched from the public update host.
+// Source of truth: letterpad_source/<date>/<NN>/ (tools/build_letterpad_index.py).
+// ==========================================================================
+const LETTERPAD = (() => {
+  const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  // OTA-updatable, so a hardcoded public URL is fine — if the dist repo ever
+  // moves, an app.js OTA fixes it. Same host the daily sync already fetches.
+  const REMOTE = "https://raw.githubusercontent.com/samarpanupnishad-ops/wisdom-archive-dist/main/letterpad";
+  const BASE = isNative ? REMOTE : "/letterpad";
+  const CACHE_KEY = "wa:letterpad:cache";
+  let _index = null;
+
+  function cached() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch { return null; } }
+  async function loadIndex() {
+    if (_index) return _index;
+    _index = cached();                         // instant from cache (offline-friendly)
+    try {
+      const r = await fetch(BASE + "/index.json?v=" + Date.now(), { cache: "no-store" });
+      if (r.ok) {
+        const fresh = await r.json();
+        if (!_index || fresh.version !== _index.version) {
+          _index = fresh;
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(fresh)); } catch (_) {}
+        }
+      }
+    } catch (_) { /* offline — keep whatever cache we have */ }
+    return _index || { messages: [] };
+  }
+  const imgUrl = (rel) => BASE + "/" + rel;
+  return { loadIndex, imgUrl };
+})();
+
+// One letterpad message card: title, date line, its page images (lazy), and
+// the OCR text. `lang` picks which language's pages+text to show; a small
+// toggle is added only when both languages exist for that message.
+function letterpadCardHtml(m, lang) {
+  const both = m.pages_hi.length && m.pages_en.length;
+  const useEn = lang === "en" && m.pages_en.length;
+  const pages = useEn ? m.pages_en : (m.pages_hi.length ? m.pages_hi : m.pages_en);
+  const title = useEn ? (m.title_en || m.title_hi) : (m.title_hi || m.title_en);
+  const body = useEn ? (m.body_en || m.body_hi) : (m.body_hi || m.body_en);
+  const postedDate = fmtDate(m.date);
+  // Show the printed signature date too when it differs from the posting date
+  // (anniversary re-posts of older teachings).
+  const sig = m.signature_date && m.signature_date !== m.date ? fmtDate(m.signature_date) : "";
+  const imgs = pages.map((p) =>
+    `<img class="lp-pageimg" loading="lazy" decoding="async" src="${LETTERPAD.imgUrl(p)}" alt="page">`).join("");
+  const toggle = both
+    ? `<div class="lp-langtog" data-id="${m.id}">
+         <button data-l="hi" class="${useEn ? "" : "on"}">हिंदी</button>
+         <button data-l="en" class="${useEn ? "on" : ""}">English</button>
+       </div>` : "";
+  return `<article class="lp-card" data-id="${m.id}">
+      <div class="lp-head">
+        <div class="lp-title">${escapeHtml((title || "").replace(/\n/g, " · "))}</div>
+        <div class="lp-date">${postedDate}${sig ? ` · <span class="lp-sig">संदेश तिथि ${sig}</span>` : ""}</div>
+        ${toggle}
+      </div>
+      <div class="lp-pages">${imgs}</div>
+      ${body ? `<details class="lp-text"><summary>Read text</summary><div class="lp-body">${escapeHtml(body)}</div></details>` : ""}
+    </article>`;
+}
+
+// Renders the whole section into `container`. `getLang` returns the current
+// display language (mobile follows the bottom toggle; desktop defaults hi).
+async function renderLetterpadInto(container, getLang) {
+  container.innerHTML = `<div class="loading">Loading…</div>`;
+  const index = await LETTERPAD.loadIndex();
+  const msgs = index.messages || [];
+  const paint = () => {
+    const lang = getLang ? getLang() : "hi";
+    container.innerHTML = msgs.length
+      ? msgs.map((m) => letterpadCardHtml(m, lang)).join("")
+      : `<div class="empty">No letterpad messages yet. Guru's handwritten messages will appear here.</div>`;
+  };
+  paint();
+  // Per-card language toggle (only present when a message has both languages).
+  container.addEventListener("click", (e) => {
+    const btn = e.target.closest(".lp-langtog button"); if (!btn) return;
+    const card = btn.closest(".lp-card");
+    const m = msgs.find((x) => x.id === card.dataset.id); if (!m) return;
+    card.outerHTML = letterpadCardHtml(m, btn.dataset.l);
+  });
+  return { repaint: paint };
+}
+
+async function renderLetterpad() {
+  const nav = _nav;
+  $view.innerHTML = `<div class="lp-page"><h2 class="lp-headline">✍️ Guru's Letterpad Messages</h2>
+    <div class="lp-list"></div></div>`;
+  if (!current(nav)) return;
+  await renderLetterpadInto($view.querySelector(".lp-list"), () => "hi");
+}
+
 // --------------------------------------------------------------------------
 // Init
 // --------------------------------------------------------------------------
@@ -2918,6 +3019,7 @@ const MOBILE_UI = (() => {
         <div class="m-submenu" data-sub="other" hidden>
           <a href="#/m/anushthan"><span class="mi">🪔</span> Anushthan Msg</a>
           <a href="#/m/special"><span class="mi">✨</span> Special Msg <span class="m-badge" data-special-badge hidden></span></a>
+          <a href="#/m/letterpad"><span class="mi">✍️</span> Guru's Letterpad Msg</a>
         </div>
         <a href="#/random" class="m-lucky"><span class="mi m-lucky-ico">🌟</span>
           <span class="m-lucky-text">Your Lucky Msg for Today</span>
@@ -4495,6 +4597,18 @@ const MOBILE_UI = (() => {
     }
   }
 
+  // ---- Guru's Letterpad Messages (image pages + OCR text) ------------------
+  function letterpadPage() {
+    const node = el(`<div class="lp-list m-lp-list"></div>`);
+    // Natural full-page scroll (NOT the fixed-height m-page-scroll box, which
+    // only scrolls a dedicated .m-results child and would clip these cards).
+    pageFrame("Guru's Letterpad Messages", node);
+    let handle = null;
+    renderLetterpadInto(node, () => prefLang).then((h) => { handle = h; });
+    // Follow the bottom-bar हिंदी/English toggle (per-message pages+text repaint).
+    _pageLangHook = () => { if (handle) handle.repaint(); };
+  }
+
   // ---- Message to Admin ----------------------------------------------------
   async function contactPage() {
     const node = el(`<div class="m-contact"></div>`);
@@ -4570,7 +4684,7 @@ const MOBILE_UI = (() => {
 
   return {
     active,
-    handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m" || seg[0] === "favorites" || seg[0] === "special"; },
+    handles(seg) { return !seg.length || seg[0] === "entry" || seg[0] === "m" || seg[0] === "favorites" || seg[0] === "special" || seg[0] === "letterpad"; },
     async route(seg, params) {
       closeDrawer();
       exitZoom();
@@ -4584,12 +4698,14 @@ const MOBILE_UI = (() => {
       if (seg[0] === "entry") return viewer(seg[1], params, false);
       if (seg[0] === "favorites") return favoritesPage();
       if (seg[0] === "special") return specialPage();   // desktop-style link → same page
+      if (seg[0] === "letterpad") return letterpadPage();
       const p = seg[1];
       if (p === "search") return searchPage(params);
       if (p === "nomsg") return renderDateMessage(params.get("d"));
       if (p === "community") return communityPage(params);
       if (p === "anushthan") return placeholderPage("Anushthan Message", "अनुष्ठान संदेश");
       if (p === "special") return specialPage();
+      if (p === "letterpad") return letterpadPage();
       if (p === "contact") return contactPage();
       if (p === "account") return accountPage();
       return viewer(null, params, true);
